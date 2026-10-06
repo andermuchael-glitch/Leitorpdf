@@ -64,10 +64,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
 
     fun openPdf(uri: Uri, name: String) {
         val savedUri = prefs.getString("uri", null)
-        val sameDocument = savedUri == uri.toString()
+        val lastUri = prefs.getString("last_uri", null)
+        val sameDocument = savedUri == uri.toString() || lastUri == uri.toString()
         val savedPage = prefs.getInt("page", 1).coerceAtLeast(1)
-        val savedChunk = prefs.getInt("chunk", 0)
         val savedAvailable = prefs.getBoolean("available", false)
+
+        // Guarda imediatamente o último documento para que o aplicativo possa
+        // reabrir o mesmo PDF na próxima inicialização.
+        prefs.edit()
+            .putString("last_uri", uri.toString())
+            .putString("last_name", name)
+            .apply()
 
         _state.value = _state.value.copy(
             fileName = name,
@@ -76,14 +83,23 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
             error = null,
             resumeAvailable = sameDocument && savedAvailable,
             resumePage = savedPage,
-            highlightText = if (sameDocument) prefs.getString("highlight_text", "").orEmpty() else ""
+            highlightText = if (sameDocument) {
+                prefs.getString("highlight_text", "").orEmpty()
+            } else {
+                ""
+            }
         )
 
         viewModelScope.launch {
             runCatching { extractor.extractPages(uri) }
                 .onSuccess { pages ->
                     val total = pages.size.coerceAtLeast(1)
-                    val startPage = if (sameDocument) savedPage.coerceIn(1, total) else 1
+                    val startPage = if (sameDocument) {
+                        savedPage.coerceIn(1, total)
+                    } else {
+                        1
+                    }
+
                     _state.value = _state.value.copy(
                         pageTexts = pages,
                         pageCount = pages.size,
@@ -107,7 +123,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
     fun setSelectedPage(page: Int) {
         val count = _state.value.pageCount
         if (count <= 0) return
-        _state.value = _state.value.copy(selectedPage = page.coerceIn(1, count), highlightText = if (_state.value.isSpeaking) _state.value.highlightText else "")
+
+        val safe = page.coerceIn(1, count)
+        _state.value = _state.value.copy(
+            selectedPage = safe,
+            highlightText = if (_state.value.isSpeaking) {
+                _state.value.highlightText
+            } else {
+                ""
+            }
+        )
     }
 
     fun availableVoices(): List<VoiceOption> = _state.value.voices
@@ -115,6 +140,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
     fun selectVoice(name: String?) {
         _state.value = _state.value.copy(selectedVoice = name)
         prefs.edit().putString("voice", name).apply()
+
         if (_state.value.isSpeaking) {
             val page = prefs.getInt("current_page", _state.value.selectedPage)
             val sentence = prefs.getInt("current_sentence", 0)
@@ -126,6 +152,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         val current = _state.value
         if (current.isSpeaking) {
             pauseSpeech()
+        } else if (current.resumeAvailable &&
+            prefs.getString("uri", null) == current.uri
+        ) {
+            continueReading()
         } else {
             startReadingFromPage(current.selectedPage)
         }
@@ -134,25 +164,26 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
     fun startReadingFromPage(page: Int) {
         val current = _state.value
         if (current.pageTexts.isEmpty()) return
+
         val safePage = page.coerceIn(1, current.pageTexts.size)
         setSelectedPage(safePage)
-
-        val text = current.pageTexts.drop(safePage - 1).joinToString("\n\n").trim()
         startService(safePage, 0)
     }
 
     fun continueReading() {
         val current = _state.value
         if (current.pageTexts.isEmpty()) return
+
         val savedUri = prefs.getString("uri", null)
         if (savedUri != current.uri) {
             startReadingFromPage(current.selectedPage)
             return
         }
 
-        val page = prefs.getInt("page", current.selectedPage).coerceIn(1, current.pageTexts.size)
+        val page = prefs.getInt("page", current.selectedPage)
+            .coerceIn(1, current.pageTexts.size)
         val chunk = prefs.getInt("chunk", 0).coerceAtLeast(0)
-        val text = current.pageTexts.drop(page - 1).joinToString("\n\n").trim()
+
         setSelectedPage(page)
         startService(page, chunk)
     }
@@ -163,7 +194,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
 
         val intent = Intent(app, PdfSpeechService::class.java).apply {
             action = PdfSpeechService.ACTION_PLAY
-            putStringArrayListExtra(PdfSpeechService.EXTRA_PAGES, ArrayList(current.pageTexts))
+            putStringArrayListExtra(
+                PdfSpeechService.EXTRA_PAGES,
+                ArrayList(current.pageTexts)
+            )
             putExtra(PdfSpeechService.EXTRA_URI, current.uri)
             putExtra(PdfSpeechService.EXTRA_FILE_NAME, current.fileName)
             putExtra(PdfSpeechService.EXTRA_RATE, current.speechRate)
@@ -178,36 +212,62 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
             app.startService(intent)
         }
 
-        _state.value = _state.value.copy(isSpeaking = true, error = null)
+        _state.value = _state.value.copy(
+            isSpeaking = true,
+            error = null,
+            selectedPage = page
+        )
     }
 
+    /**
+     * Sincronização rápida com o serviço TTS.
+     *
+     * 150 ms deixa a mudança de trecho/página praticamente imediata sem
+     * sobrecarregar a UI. O destaque pesado já foi movido para a preparação
+     * assíncrona da página no PdfPageView.
+     */
     fun syncPlayback() {
-        if (prefs.getString("uri", null) != _state.value.uri) return
-        val playing = prefs.getBoolean("playing", false)
-        val page = prefs.getInt("current_page", _state.value.selectedPage)
-            .coerceIn(1, _state.value.pageCount.coerceAtLeast(1))
-        val highlight = prefs.getString("highlight_text", "").orEmpty()
         val current = _state.value
+        if (prefs.getString("uri", null) != current.uri) return
+
+        val playing = prefs.getBoolean("playing", false)
+        val page = prefs.getInt("current_page", current.selectedPage)
+            .coerceIn(1, current.pageCount.coerceAtLeast(1))
+        val highlight = prefs.getString("highlight_text", "").orEmpty()
+
         val newHighlight = if (playing) highlight else current.highlightText
-        if (current.isSpeaking != playing || current.selectedPage != page || current.highlightText != newHighlight) {
+
+        if (
+            current.isSpeaking != playing ||
+            current.selectedPage != page ||
+            current.highlightText != newHighlight
+        ) {
             _state.value = current.copy(
                 isSpeaking = playing,
                 selectedPage = page,
-                highlightText = newHighlight
+                highlightText = newHighlight,
+                resumeAvailable = prefs.getBoolean("available", current.resumeAvailable)
             )
         }
     }
 
     fun pauseSpeech() {
-        val intent = Intent(app, PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_PAUSE)
+        val intent = Intent(app, PdfSpeechService::class.java)
+            .setAction(PdfSpeechService.ACTION_PAUSE)
         app.startService(intent)
+
         _state.value = _state.value.copy(isSpeaking = false)
     }
 
     fun stopSpeech() {
-        val intent = Intent(app, PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_STOP)
+        val intent = Intent(app, PdfSpeechService::class.java)
+            .setAction(PdfSpeechService.ACTION_STOP)
         app.startService(intent)
-        _state.value = _state.value.copy(isSpeaking = false, highlightText = "")
+
+        _state.value = _state.value.copy(
+            isSpeaking = false,
+            highlightText = ""
+        )
     }
 
     fun setSpeechRate(rate: Float) {
@@ -228,35 +288,61 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         }
 
         ttsReady = true
+
         val savedVoice = prefs.getString("voice", null)
         val savedRate = prefs.getFloat("rate", 1f).coerceIn(0.5f, 2f)
 
         val options = tts.voices.orEmpty()
             .filter { it.locale.language == "pt" }
             .distinctBy { it.name }
-            .sortedWith(compareBy<Voice>({ !it.locale.toLanguageTag().startsWith("pt-BR") }, { it.name }))
+            .sortedWith(
+                compareBy<Voice>(
+                    { !it.locale.toLanguageTag().startsWith("pt-BR") },
+                    { it.name }
+                )
+            )
             .map { VoiceOption(it.name, voiceLabel(it)) }
 
         _state.value = _state.value.copy(
             speechReady = true,
             voices = options,
-            selectedVoice = savedVoice?.takeIf { name -> options.any { it.name == name } },
+            selectedVoice = savedVoice?.takeIf { name ->
+                options.any { it.name == name }
+            },
             speechRate = savedRate,
             error = null
         )
+
         tts.setSpeechRate(savedRate)
     }
 
     private fun voiceLabel(voice: Voice): String {
-        val language = voice.locale.displayLanguage.replaceFirstChar { it.uppercase() }
+        val language = voice.locale.displayLanguage
+            .replaceFirstChar { it.uppercase() }
         val country = voice.locale.displayCountry
-        val quality = if (voice.quality >= Voice.QUALITY_HIGH) "Alta qualidade" else "Padrão"
+        val quality = if (voice.quality >= Voice.QUALITY_HIGH) {
+            "Alta qualidade"
+        } else {
+            "Padrão"
+        }
+
         val shortName = voice.name
             .substringAfterLast(":", voice.name)
             .replace("_", " ")
             .takeLast(28)
-        val connection = if (voice.isNetworkConnectionRequired) " • online" else " • instalada"
-        val localeLabel = if (country.isBlank()) "$language • $quality" else "$language ($country) • $quality"
+
+        val connection = if (voice.isNetworkConnectionRequired) {
+            " • online"
+        } else {
+            " • instalada"
+        }
+
+        val localeLabel = if (country.isBlank()) {
+            "$language • $quality"
+        } else {
+            "$language ($country) • $quality"
+        }
+
         return "$localeLabel • $shortName$connection"
     }
 
