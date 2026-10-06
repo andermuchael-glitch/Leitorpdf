@@ -1,13 +1,19 @@
 import textToSpeech from "@google-cloud/text-to-speech";
 
 const allowedVoices = new Set([
-  "pt-BR-Chirp3-HD-Rasalgethi",
-  "pt-BR-Chirp3-HD-Sadaltager",
-  "pt-BR-Chirp3-HD-Charon",
-  "pt-BR-Chirp3-HD-Orus",
-  "pt-BR-Chirp3-HD-Schedar",
-  "pt-BR-Chirp3-HD-Fenrir",
+  "pt-BR-Chirp3-HD-Achernar",
   "pt-BR-Chirp3-HD-Achird",
+  "pt-BR-Chirp3-HD-Charon",
+  "pt-BR-Chirp3-HD-Enceladus",
+  "pt-BR-Chirp3-HD-Fenrir",
+  "pt-BR-Chirp3-HD-Gacrux",
+  "pt-BR-Chirp3-HD-Iapetus",
+  "pt-BR-Chirp3-HD-Kore",
+  "pt-BR-Chirp3-HD-Orus",
+  "pt-BR-Chirp3-HD-Rasalgethi",
+  "pt-BR-Chirp3-HD-Sadachbia",
+  "pt-BR-Chirp3-HD-Sadaltager",
+  "pt-BR-Chirp3-HD-Schedar",
   "pt-BR-Chirp3-HD-Zubenelgenubi"
 ]);
 
