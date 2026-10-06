@@ -312,7 +312,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     private fun isReaderUtterance(id: String?): Boolean =
         id?.startsWith("pdf-reader-") == true
 
-    private fun parsePosition(id: String): Pair<Int, Int>? {
+    private fun parsePosition(id: String?): Pair<Int, Int>? {
         val match = Regex("^pdf-reader-(\\d+)-(\\d+)$").find(id ?: return null)
             ?: return null
 
