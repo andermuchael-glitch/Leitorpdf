@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
@@ -77,8 +78,11 @@ fun ReaderScreen(
     var pageCount by remember { mutableStateOf(0) }
     var showPageDialog by remember { mutableStateOf(false) }
     var showVoiceDialog by remember { mutableStateOf(false) }
+    var showAppearanceDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pageInput by remember { mutableStateOf("") }
+    var filterMode by remember { mutableStateOf(0) }
+    var brightness by remember { mutableStateOf(0f) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(uri) {
@@ -91,9 +95,17 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(state.selectedPage) {
+    LaunchedEffect(state.selectedPage, state.highlightText) {
         if (pageCount > 0) {
             pdfView.goToPage(state.selectedPage - 1, scope)
+            pdfView.setHighlightText(state.highlightText, scope)
+        }
+    }
+
+    LaunchedEffect(state.isSpeaking) {
+        while (state.isSpeaking) {
+            viewModel.syncPlayback()
+            kotlinx.coroutines.delay(350)
         }
     }
 
@@ -170,6 +182,38 @@ fun ReaderScreen(
         )
     }
 
+    if (showAppearanceDialog) {
+        AlertDialog(
+            onDismissRequest = { showAppearanceDialog = false },
+            title = { Text("Aparência do PDF") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Cor do PDF", style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = { filterMode = 0; pdfView.setFilterMode(0) }, modifier = Modifier.weight(1f)) { Text("Normal") }
+                        OutlinedButton(onClick = { filterMode = 1; pdfView.setFilterMode(1) }, modifier = Modifier.weight(1f)) { Text("Sépia") }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = { filterMode = 2; pdfView.setFilterMode(2) }, modifier = Modifier.weight(1f)) { Text("Cinza") }
+                        OutlinedButton(onClick = { filterMode = 3; pdfView.setFilterMode(3) }, modifier = Modifier.weight(1f)) { Text("Invertido") }
+                    }
+                    Text("Luminosidade", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Brightness6, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Slider(
+                            value = brightness,
+                            onValueChange = { brightness = it; pdfView.setBrightness(it) },
+                            valueRange = -0.45f..0.45f,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Text("O marca-texto acompanha o trecho lido mesmo com os filtros.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAppearanceDialog = false }) { Text("Concluir") } }
+        )
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -217,9 +261,10 @@ fun ReaderScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Ajustes de leitura") },
-                                leadingIcon = { Icon(Icons.Default.Tune, null) },
+                                text = { Text("Cor e luminosidade") },
+                                leadingIcon = { Icon(Icons.Default.Brightness6, null) },
                                 onClick = {
+                                    showAppearanceDialog = true
                                     menuExpanded = false
                                 }
                             )
