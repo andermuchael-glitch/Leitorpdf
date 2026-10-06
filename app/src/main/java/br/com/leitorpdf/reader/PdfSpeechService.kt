@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.*
 import androidx.core.app.*
 import kotlinx.coroutines.*
-import java.util.Locale
 
 class PdfSpeechService : Service() {
     companion object {
@@ -45,7 +44,7 @@ class PdfSpeechService : Service() {
         super.onCreate()
         cloud=CloudTtsClient(this)
         channel()
-
+    }
 
     override fun onStartCommand(i:Intent?,flags:Int,startId:Int):Int{
         when(i?.action){
@@ -84,7 +83,10 @@ class PdfSpeechService : Service() {
                 text?.let{cloud.synthesize(it,v,rate)}
             }
             if(g!=generation||paused)return@launch
-            if(f==null){fail("Não foi possível gerar a voz profissional. Verifique a conexão e a configuração do servidor TTS.");return@launch}
+            if(f==null){
+                fail("Não foi possível gerar a voz profissional. Verifique a configuração do servidor TTS.")
+                return@launch
+            }
             started(p.first,p.second)
             play(f,g,p)
             prefetch(p,v)
@@ -105,7 +107,13 @@ class PdfSpeechService : Service() {
         val m=MediaPlayer()
         player=m
         m.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-        m.setDataSource(this,Uri.fromFile(file))
+        try{
+            m.setDataSource(this,Uri.fromFile(file))
+        }catch(_:Throwable){
+            release()
+            if(g==generation&&!paused)fail("Falha ao abrir o áudio da voz profissional.")
+            return
+        }
         m.setOnPreparedListener{
             if(g!=generation||paused){release();return@setOnPreparedListener}
             m.start()
@@ -119,20 +127,23 @@ class PdfSpeechService : Service() {
             finished(p.first,p.second)
         }
         m.setOnErrorListener{_,_,_->
-            if(g==generation&&!paused) fail("Falha ao reproduzir o áudio da voz profissional.")
+            if(g==generation&&!paused)fail("Falha ao reproduzir o áudio da voz profissional.")
             release()
             true
         }
         try{m.prepareAsync()}catch(_:Throwable){
             release()
-            if(g==generation&&!paused) fail("Falha ao preparar o áudio da voz profissional.")
+            if(g==generation&&!paused)fail("Falha ao preparar o áudio da voz profissional.")
         }
+    }
 
     private fun started(p:Int,s:Int){
         page=p
         sentence=s
         val original=parts(pages.getOrNull(p-1).orEmpty()).getOrNull(s)?.second.orEmpty()
-        prefs.edit().putInt("current_page",p).putInt("current_sentence",s).putString("highlight_text",original).putBoolean("playing",true).putBoolean("available",true).apply()
+        prefs.edit().putInt("current_page",p).putInt("current_sentence",s)
+            .putString("highlight_text",original).putBoolean("playing",true)
+            .putBoolean("available",true).remove("speech_error").apply()
         save(true)
         notify(true)
     }
@@ -180,8 +191,22 @@ class PdfSpeechService : Service() {
             .map{it.trim()}.filter{it.isNotBlank()}.map{it to it}
     }
 
-    private fun pause(){paused=true;generation++;release();save(false);notify(false)}
-    private fun stop(){paused=true;generation++;release();save(false);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf()}
+    private fun pause(){
+        paused=true
+        generation++
+        release()
+        save(false)
+        notify(false)
+    }
+
+    private fun stop(){
+        paused=true
+        generation++
+        release()
+        save(false)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
 
     private fun release(){
         player?.let{try{it.stop()}catch(_:Throwable){};it.reset();it.release()}
@@ -202,22 +227,31 @@ class PdfSpeechService : Service() {
         else ServiceCompat.startForeground(this,ID,n,0)
     }
 
-    private fun notify(playing:Boolean){getSystemService(NotificationManager::class.java).notify(ID,build(playing))}
+    private fun notify(playing:Boolean){
+        getSystemService(NotificationManager::class.java).notify(ID,build(playing))
+    }
 
     private fun build(playing:Boolean):Notification{
-        val toggle=PendingIntent.getService(this,1,Intent(this,PdfSpeechService::class.java).setAction(if(playing)ACTION_PAUSE else ACTION_PLAY),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val stop=PendingIntent.getService(this,2,Intent(this,PdfSpeechService::class.java).setAction(ACTION_STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val toggle=PendingIntent.getService(this,1,Intent(this,PdfSpeechService::class.java)
+            .setAction(if(playing)ACTION_PAUSE else ACTION_PLAY),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stop=PendingIntent.getService(this,2,Intent(this,PdfSpeechService::class.java)
+            .setAction(ACTION_STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this,CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Leitor PDF • "+if(playing){"Narrador profissional"}else"Pausado")
+            .setContentTitle("Leitor PDF • "+if(playing)"Narrador profissional" else "Pausado")
             .setContentText("$fileName • página $page de ${pages.size}")
-            .setOngoing(playing).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .addAction(if(playing)android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,if(playing)"Pausar" else"Continuar",toggle)
+            .setOngoing(playing).setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .addAction(if(playing)android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                if(playing)"Pausar" else "Continuar",toggle)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel,"Parar",stop).build()
     }
 
-    private fun channel(){getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL,"Leitura de PDF",NotificationManager.IMPORTANCE_LOW))}
-    override fun onInit(status:Int){if(status==TextToSpeech.SUCCESS){ready=true;if(pages.isNotEmpty()&&!paused)start()}}
+    private fun channel(){
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel(CHANNEL,"Leitura de PDF",NotificationManager.IMPORTANCE_LOW))
+    }
+
     private fun fail(message:String){
         paused=true
         generation++
@@ -226,6 +260,12 @@ class PdfSpeechService : Service() {
         notify(false)
     }
 
-    override fun onDestroy(){generation++;scope.cancel();release();super.onDestroy()}
+    override fun onDestroy(){
+        generation++
+        scope.cancel()
+        release()
+        super.onDestroy()
+    }
+
     override fun onBind(i:Intent?):IBinder?=null
 }
