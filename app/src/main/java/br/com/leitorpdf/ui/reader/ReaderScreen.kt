@@ -91,7 +91,7 @@ fun ReaderScreen(uri: Uri, fileName: String, viewModel: ReaderViewModel, onBack:
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Página \${pageNumber}\${if (pageCount > 0) " de \${pageCount}" else ""}")
+                        Text("Página ${pageNumber}${if (pageCount > 0) " de ${pageCount}" else ""}")
                         Text(
                             if (state.isSpeaking) "Ouvindo" else "Lendo",
                             color = MaterialTheme.colorScheme.primary
