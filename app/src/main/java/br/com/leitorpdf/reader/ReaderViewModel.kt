@@ -65,13 +65,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         val sameDocument = savedUri == uri.toString()
         val savedPage = prefs.getInt("page", 1).coerceAtLeast(1)
         val savedChunk = prefs.getInt("chunk", 0)
+        val savedAvailable = prefs.getBoolean("available", false)
 
         _state.value = _state.value.copy(
             fileName = name,
             uri = uri.toString(),
             isLoading = true,
             error = null,
-            resumeAvailable = sameDocument && savedChunk > 0,
+            resumeAvailable = sameDocument && savedAvailable,
             resumePage = savedPage
         )
 
