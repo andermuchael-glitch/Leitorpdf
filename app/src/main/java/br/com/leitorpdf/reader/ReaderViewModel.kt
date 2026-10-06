@@ -187,11 +187,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         val page = prefs.getInt("current_page", _state.value.selectedPage)
             .coerceIn(1, _state.value.pageCount.coerceAtLeast(1))
         val highlight = prefs.getString("highlight_text", "").orEmpty()
-        _state.value = _state.value.copy(
-            isSpeaking = playing,
-            selectedPage = page,
-            highlightText = if (playing) highlight else _state.value.highlightText
-        )
+        val current = _state.value
+        val newHighlight = if (playing) highlight else current.highlightText
+        if (current.isSpeaking != playing || current.selectedPage != page || current.highlightText != newHighlight) {
+            _state.value = current.copy(
+                isSpeaking = playing,
+                selectedPage = page,
+                highlightText = newHighlight
+            )
+        }
     }
 
     fun pauseSpeech() {
