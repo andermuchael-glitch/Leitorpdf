@@ -31,7 +31,7 @@ object AndroidTts {
         return tts.voices
             .asSequence()
             .filter { it.locale.language.equals("pt", ignoreCase = true) }
-            .filter { !it.isNetworkConnectionRequired }
+            
             .distinctBy { it.name }
             .sortedWith(compareBy<Voice> { it.locale.country != "BR" }.thenBy { it.name })
             .map { VoiceInfo(it.name, label(it), it.locale, it.isNetworkConnectionRequired) }
@@ -41,7 +41,7 @@ object AndroidTts {
     fun findVoice(tts: TextToSpeech, name: String?): Voice? {
         return tts.voices.firstOrNull { it.name == name }
             ?: tts.voices
-                .filter { it.locale.language == "pt" && !it.isNetworkConnectionRequired }
+                .filter { it.locale.language == "pt" }
                 .sortedBy { it.locale.country != "BR" }
                 .firstOrNull()
     }
