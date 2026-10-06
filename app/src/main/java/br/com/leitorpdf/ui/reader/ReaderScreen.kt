@@ -80,14 +80,12 @@ fun ReaderScreen(
     var pageCount by remember { mutableStateOf(0) }
     var showPageDialog by remember { mutableStateOf(false) }
     var showVoiceDialog by remember { mutableStateOf(false) }
-    var showCloudDialog by remember { mutableStateOf(false) }
     var showAppearanceDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pageInput by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf(0) }
     var brightness by remember { mutableStateOf(0f) }
     var highlightEnabled by remember { mutableStateOf(true) }
-    var cloudEndpointInput by remember { mutableStateOf(viewModel.cloudEndpoint()) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(uri) {
@@ -147,80 +145,73 @@ fun ReaderScreen(
 
     if (showVoiceDialog) {
         AlertDialog(
-            onDismissRequest = { showVoiceDialog = false },
+            onDismissRequest = { if (!state.modelDownloading) showVoiceDialog = false },
             title = { Text("Voz da leitura") },
             text = {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        if (state.cloudTtsConfigured) "Narrador neural profissional • Português (Brasil)"
-                        else "Para usar a voz profissional, conecte o servidor de voz neural.",
+                        "Narrador neural local • Português (Brasil)",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    Divider(Modifier.padding(vertical = 10.dp))
-                    if (state.cloudTtsConfigured) {
-                        state.voices.forEachIndexed { index, voice ->
-                            TextButton(
-                                onClick = {
-                                    viewModel.selectVoice(voice.name)
-                                    showVoiceDialog = false
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Voz " + (index + 1) + " — " + voice.label)
-                                    if (state.selectedVoice == voice.name) Text("✓")
-                                }
-                            }
+
+                    Text(
+                        "A voz é gerada no próprio celular. Depois do primeiro download, a leitura funciona sem Google Cloud, sem API e sem internet.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Divider()
+
+                    if (state.modelDownloading) {
+                        Text("Preparando o modelo de voz… \${state.modelProgress}%")
+                        LinearProgressIndicator(
+                            progress = { state.modelProgress / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else if (!state.localTtsReady) {
+                        Text(
+                            "Na primeira utilização, o aplicativo precisa baixar o modelo neural Kokoro (aprox. 345 MB). Isso é feito uma única vez."
+                        )
+                        Button(
+                            onClick = { viewModel.prepareLocalVoice() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Baixar e preparar voz")
                         }
                     } else {
-                        Text("As vozes abaixo são neurais profissionais. Elas não usam o TTS tradicional do aparelho.")
+                        Text(
+                            "Modelo instalado e pronto para uso offline.",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
-                    OutlinedButton(
-                        onClick = {
-                            cloudEndpointInput = state.cloudTtsEndpoint
-                            showVoiceDialog = false
-                            showCloudDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    ) {
-                        Text(if (state.cloudTtsConfigured) "Alterar servidor de voz" else "Configurar voz profissional")
-                    }
-                }
-            },
-            confirmButton = {}
-        )
-    }
 
-    if (showCloudDialog) {
-        AlertDialog(
-            onDismissRequest = { showCloudDialog = false },
-            title = { Text("Servidor da voz profissional") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Informe a URL HTTPS do endpoint /api/tts. A chave do Google Cloud fica somente no servidor, nunca dentro do APK.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    OutlinedTextField(
-                        value = cloudEndpointInput,
-                        onValueChange = { cloudEndpointInput = it },
-                        label = { Text("URL do servidor TTS") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    state.voices.forEachIndexed { index, voice ->
+                        TextButton(
+                            onClick = {
+                                viewModel.selectVoice(voice.name)
+                                showVoiceDialog = false
+                            },
+                            enabled = state.localTtsReady && !state.modelDownloading,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Voz " + (index + 1) + " — " + voice.label)
+                                if (state.selectedVoice == voice.name) Text("✓")
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.setCloudEndpoint(cloudEndpointInput)
-                    showCloudDialog = false
-                }) { Text("Salvar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCloudDialog = false }) { Text("Cancelar") }
+                TextButton(
+                    onClick = { showVoiceDialog = false },
+                    enabled = !state.modelDownloading
+                ) {
+                    Text("Fechar")
+                }
             }
         )
     }
