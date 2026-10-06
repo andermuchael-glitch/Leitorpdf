@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,6 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.SettingsVoice
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.FormatListNumbered
@@ -58,6 +63,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -66,7 +72,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.collectAsState
 import br.com.leitorpdf.data.pdf.PdfPageView
 import br.com.leitorpdf.reader.ReaderViewModel
-import java.util.Locale
+import android.content.Intent
+import android.provider.Settings
+import br.com.leitorpdf.reader.AndroidTts
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,12 +92,13 @@ fun ReaderScreen(
     var pageCount by remember { mutableStateOf(0) }
     var showPageDialog by remember { mutableStateOf(false) }
     var showVoiceDialog by remember { mutableStateOf(false) }
+    var showAudioDialog by remember { mutableStateOf(false) }
     var showAppearanceDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pageInput by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf(0) }
     var brightness by remember { mutableStateOf(0f) }
-    var highlightEnabled by remember { mutableStateOf(true) }
+    var highlightEnabled by remember { mutableStateOf(false) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(Unit) {
@@ -122,10 +132,10 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(state.isSpeaking) {
-        while (state.isSpeaking) {
+    LaunchedEffect(Unit) {
+        while (true) {
             viewModel.syncPlayback()
-            kotlinx.coroutines.delay(150)
+            delay(500)
         }
     }
 
@@ -157,73 +167,114 @@ fun ReaderScreen(
 
     if (showVoiceDialog) {
         AlertDialog(
-            onDismissRequest = { if (!state.modelDownloading) showVoiceDialog = false },
-            title = { Text("Voz da leitura") },
+            onDismissRequest = { showVoiceDialog = false },
+            title = { Text("Voz e áudio") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Narrador neural local • Português (Brasil)",
-                        style = MaterialTheme.typography.bodyMedium
+                        "Vozes do mecanismo TTS do Android",
+                        style = MaterialTheme.typography.titleSmall
                     )
-
                     Text(
-                        "A voz é gerada no próprio celular. Depois do primeiro download, a leitura funciona sem Google Cloud, sem API e sem internet.",
+                        "As vozes disponíveis são as que estão instaladas no celular. Você pode baixar outras vozes nas configurações do Android.",
                         style = MaterialTheme.typography.bodySmall
                     )
-
-                    Divider()
-
-                    if (state.modelDownloading) {
-                        Text("Preparando o modelo de voz… \${state.modelProgress}%")
-                        LinearProgressIndicator(
-                            progress = { state.modelProgress / 100f },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else if (!state.localTtsReady) {
-                        Text(
-                            "Na primeira utilização, o aplicativo precisa baixar o modelo neural Kokoro (aprox. 345 MB). Isso é feito uma única vez."
-                        )
-                        Button(
-                            onClick = { viewModel.prepareLocalVoice() },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Baixar e preparar voz")
-                        }
-                    } else {
-                        Text(
-                            "Modelo instalado e pronto para uso offline.",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    Button(
+                        onClick = {
+                            context.startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.SettingsVoice, null)
+                        Text("  Gerenciar / baixar vozes")
                     }
-
+                    Divider()
+                    if (state.voices.isEmpty()) {
+                        Text("Nenhuma voz em português encontrada.")
+                    }
                     state.voices.forEachIndexed { index, voice ->
                         TextButton(
                             onClick = {
                                 viewModel.selectVoice(voice.name)
                                 showVoiceDialog = false
                             },
-                            enabled = state.localTtsReady && !state.modelDownloading,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Voz " + (index + 1) + " — " + voice.label)
+                                Text(
+                                    "Voz " + (index + 1) + " — " + voice.label,
+                                    modifier = Modifier.weight(1f)
+                                )
                                 if (state.selectedVoice == voice.name) Text("✓")
                             }
                         }
+                    }
+                    Divider()
+                    Text(
+                        "Velocidade: " + "%.1f".format(state.speechRate) + "x",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Slider(
+                        value = state.speechRate,
+                        onValueChange = viewModel::setSpeechRate,
+                        valueRange = .5f..2f
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showVoiceDialog = false }) { Text("Fechar") }
+            }
+        )
+    }
+
+    if (showAudioDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!state.exportingAudio) showAudioDialog = false },
+            title = { Text("Arquivos de narração") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Salvar a narração da página atual como arquivos WAV.")
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            "Downloads / LeitorPDF",
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+                    if (state.exportingAudio) {
+                        LinearProgressIndicator(
+                            progress = { state.exportProgress / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(state.exportMessage)
+                    } else if (state.exportMessage.isNotBlank()) {
+                        Text(
+                            state.exportMessage,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Button(
+                        onClick = { viewModel.exportCurrentPageAudio() },
+                        enabled = state.speechReady &&
+                            !state.exportingAudio &&
+                            state.pageTexts.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Download, null)
+                        Text("  Salvar áudio da página " + state.selectedPage)
                     }
                 }
             },
             confirmButton = {
                 TextButton(
-                    onClick = { showVoiceDialog = false },
-                    enabled = !state.modelDownloading
-                ) {
-                    Text("Fechar")
-                }
+                    onClick = { showAudioDialog = false },
+                    enabled = !state.exportingAudio
+                ) { Text("Fechar") }
             }
         )
     }
@@ -243,7 +294,7 @@ fun ReaderScreen(
                         OutlinedButton(onClick = { filterMode = 2; pdfView.setFilterMode(2) }, modifier = Modifier.weight(1f)) { Text("Cinza") }
                         OutlinedButton(onClick = { filterMode = 3; pdfView.setFilterMode(3) }, modifier = Modifier.weight(1f)) { Text("Invertido") }
                     }
-                    Text("Marca-texto sincronizado", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                    Text("Marca-texto (opcional)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -275,7 +326,7 @@ fun ReaderScreen(
                             modifier = Modifier.weight(1f)
                         )
                     }
-                    Text("O marca-texto acompanha o trecho lido mesmo com os filtros.", style = MaterialTheme.typography.bodySmall)
+                    Text("O marca-texto é opcional e fica desligado por padrão para priorizar a fluidez.", style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = { TextButton(onClick = { showAppearanceDialog = false }) { Text("Concluir") } }
@@ -287,6 +338,26 @@ fun ReaderScreen(
     ) { _ ->
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             AndroidView(factory = { pdfView }, modifier = Modifier.fillMaxSize())
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(state.selectedPage, state.pageCount) {
+                        var distance = 0f
+                        detectHorizontalDragGestures(
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                distance += dragAmount
+                            },
+                            onDragEnd = {
+                                when {
+                                    distance < -90f -> viewModel.nextPage()
+                                    distance > 90f -> viewModel.previousPage()
+                                }
+                            }
+                        )
+                    }
+            )
 
             if (state.isLoading) {
                 Text(
@@ -336,6 +407,14 @@ fun ReaderScreen(
                                 onClick = { showVoiceDialog = true; menuExpanded = false }
                             )
                             DropdownMenuItem(
+                                text = { Text("Baixar narração") },
+                                leadingIcon = { Icon(Icons.Default.Download, null) },
+                                onClick = {
+                                    showAudioDialog = true
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Aparência e marca-texto") },
                                 leadingIcon = { Icon(Icons.Default.Brightness6, null) },
                                 onClick = { showAppearanceDialog = true; menuExpanded = false }
@@ -360,22 +439,52 @@ fun ReaderScreen(
             }
 
             Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 14.dp),
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 10.dp
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(12.dp),
+                shape = RoundedCornerShape(28.dp),
+                color = Color.Black.copy(alpha = .82f)
             ) {
-                IconButton(
-                    onClick = { viewModel.toggleSpeech() },
-                    modifier = Modifier.size(64.dp),
-                    enabled = state.text.isNotBlank()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        if (state.isSpeaking) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (state.isSpeaking) "Pausar narração" else "Iniciar narração",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(34.dp)
-                    )
+                    IconButton(
+                        onClick = { viewModel.previousPage() },
+                        enabled = state.selectedPage > 1
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowBackIosNew,
+                            "Página anterior",
+                            tint = if (state.selectedPage > 1) Color.White else Color.Gray
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.toggleSpeech() },
+                        modifier = Modifier.size(58.dp),
+                        enabled = state.text.isNotBlank()
+                    ) {
+                        Icon(
+                            if (state.isSpeaking) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (state.isSpeaking) "Pausar" else "Ouvir",
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.nextPage() },
+                        enabled = state.selectedPage < state.pageCount
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowForwardIos,
+                            "Próxima página",
+                            tint = if (state.selectedPage < state.pageCount) Color.White else Color.Gray
+                        )
+                    }
+                    IconButton(onClick = { showVoiceDialog = true }) {
+                        Icon(Icons.Default.Speed, "Velocidade", tint = Color.White)
+                    }
                 }
             }
         }
