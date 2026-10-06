@@ -100,6 +100,11 @@ fun ReaderScreen(
     var filterMode by remember { mutableStateOf(0) }
     var brightness by remember { mutableStateOf(0f) }
     var highlightEnabled by remember { mutableStateOf(false) }
+    var reflowMode by remember { mutableStateOf(false) }
+    var showReadingSettings by remember { mutableStateOf(false) }
+    var reflowFontSize by remember { mutableStateOf(21f) }
+    var reflowLineHeight by remember { mutableStateOf(1.55f) }
+    var reflowBackground by remember { mutableStateOf(0) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(Unit) {
@@ -334,31 +339,105 @@ fun ReaderScreen(
         )
     }
 
+    if (showReadingSettings) {
+        AlertDialog(
+            onDismissRequest = { showReadingSettings = false },
+            title = { Text("Leitura confortável") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Tamanho do texto: " + reflowFontSize.toInt() + " sp")
+                    Slider(
+                        value = reflowFontSize,
+                        onValueChange = { reflowFontSize = it },
+                        valueRange = 17f..34f
+                    )
+                    Text("Espaçamento entre linhas")
+                    Slider(
+                        value = reflowLineHeight,
+                        onValueChange = { reflowLineHeight = it },
+                        valueRange = 1.25f..1.9f
+                    )
+                    Text("Fundo", style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { reflowBackground = 0 },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Claro") }
+                        OutlinedButton(
+                            onClick = { reflowBackground = 1 },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Sépia") }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { reflowBackground = 2 },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Escuro") }
+                        OutlinedButton(
+                            onClick = { reflowBackground = 3 },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Preto") }
+                    }
+                    Text(
+                        "O modo leitura reorganiza o texto extraído do PDF para ocupar a largura do celular, como em um leitor de e-book.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showReadingSettings = false }) { Text("Concluir") }
+            }
+        )
+    }
+
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Black
     ) { _ ->
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-            AndroidView(factory = { pdfView }, modifier = Modifier.fillMaxSize())
-
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(state.selectedPage, state.pageCount) {
-                        var distance = 0f
-                        detectHorizontalDragGestures(
-                            onHorizontalDrag = { change, dragAmount ->
-                                change.consume()
-                                distance += dragAmount
-                            },
-                            onDragEnd = {
-                                when {
-                                    distance < -90f -> viewModel.nextPage()
-                                    distance > 90f -> viewModel.previousPage()
-                                }
-                            }
-                        )
+            if (reflowMode) {
+                ReflowReader(
+                    pageText = state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty(),
+                    highlightText = if (highlightEnabled) state.highlightText else "",
+                    fontSize = reflowFontSize,
+                    lineHeightMultiplier = reflowLineHeight,
+                    backgroundMode = reflowBackground,
+                    modifier = Modifier.fillMaxSize(),
+                    onIncreaseFont = {
+                        reflowFontSize = (reflowFontSize + 1f).coerceAtMost(34f)
+                    },
+                    onDecreaseFont = {
+                        reflowFontSize = (reflowFontSize - 1f).coerceAtLeast(17f)
                     }
-            )
+                )
+            } else {
+                AndroidView(factory = { pdfView }, modifier = Modifier.fillMaxSize())
+
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(state.selectedPage, state.pageCount) {
+                            var distance = 0f
+                            detectHorizontalDragGestures(
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    distance += dragAmount
+                                },
+                                onDragEnd = {
+                                    when {
+                                        distance < -90f -> viewModel.nextPage()
+                                        distance > 90f -> viewModel.previousPage()
+                                    }
+                                }
+                            )
+                        }
+                )
+            }
 
             if (state.isLoading) {
                 Text(
@@ -378,7 +457,8 @@ fun ReaderScreen(
                         Icon(Icons.Default.ArrowBack, "Voltar", tint = androidx.compose.ui.graphics.Color.White)
                     }
                     Text(
-                        "Página ${state.selectedPage} / ${state.pageCount}",
+                        (if (reflowMode) "Leitura" else "Página") + " " +
+                            state.selectedPage + " / " + state.pageCount,
                         color = androidx.compose.ui.graphics.Color.White,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(end = 8.dp)
@@ -416,7 +496,20 @@ fun ReaderScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Aparência e marca-texto") },
+                                text = { Text(if (reflowMode) "Voltar ao PDF original" else "Modo leitura (tipo EPUB)") },
+                                leadingIcon = { Icon(Icons.Default.AutoStories, null) },
+                                onClick = {
+                                    reflowMode = !reflowMode
+                                    menuExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ajustes de leitura") },
+                                leadingIcon = { Icon(Icons.Default.Tune, null) },
+                                onClick = { showReadingSettings = true; menuExpanded = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Aparência do PDF") },
                                 leadingIcon = { Icon(Icons.Default.Brightness6, null) },
                                 onClick = { showAppearanceDialog = true; menuExpanded = false }
                             )
