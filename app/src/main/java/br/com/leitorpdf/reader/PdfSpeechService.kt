@@ -34,6 +34,10 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
         private const val NOTIFICATION_ID = 365
         private const val PREFS = "reading_progress"
 
+        // Mantemos uma pequena fila de frases. QUEUE_FLUSH em toda frase
+        // fazia o motor TTS reinicializar a reprodução e criava micro-lags.
+        private const val PREFETCH_SENTENCES = 2
+
         private fun normalizeReferences(text: String): String {
             val regex = Regex("\\b([\\p{L}0-9]+(?:\\s+[\\p{L}0-9]+)?)\\s+(\\d+)\\.(\\d+)-(\\d+)\\b")
             return text.replace(regex) {
@@ -42,8 +46,13 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
         }
 
         private fun sentenceParts(text: String): List<Pair<String, String>> {
-            val normalized = text.replace("\r\n", "\n").replace("\r", "\n").trim()
+            val normalized = text
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .trim()
+
             if (normalized.isBlank()) return emptyList()
+
             return normalized
                 .split(Regex("(?<=[.!?…])\\s+|\\n{2,}"))
                 .map { it.trim() }
@@ -61,7 +70,6 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     private var voiceName: String? = null
     private var uri = ""
     private var fileName = "PDF"
-    private var page = 1
     private var paused = false
 
     private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
@@ -69,6 +77,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         createChannel()
+
         tts = TextToSpeech(this, this)
         tts.setAudioAttributes(
             AudioAttributes.Builder()
@@ -76,35 +85,65 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         )
+
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
+                if (!isReaderUtterance(utteranceId)) return
+
                 paused = false
+                val position = parsePosition(utteranceId) ?: return
+
+                // O destaque muda exatamente quando o motor começa aquela frase,
+                // e não quando a frase anterior termina.
+                currentPage = position.first
+                currentSentence = position.second
+                val original = currentParts().getOrNull(currentSentence)?.second.orEmpty()
+
+                prefs.edit()
+                    .putInt("current_page", currentPage)
+                    .putInt("current_sentence", currentSentence)
+                    .putString("highlight_text", original)
+                    .putBoolean("playing", true)
+                    .apply()
+
                 saveProgress(true)
                 updateNotification(true)
             }
 
             override fun onDone(utteranceId: String?) {
-                if (utteranceId?.startsWith("pdf-reader-") != true || paused) return
-                val parts = currentParts()
-                currentSentence++
-                if (currentSentence >= parts.size) {
-                    currentPage++
-                    currentSentence = 0
-                }
-                if (currentPage > pages.size) {
+                if (!isReaderUtterance(utteranceId) || paused) return
+
+                val position = parsePosition(utteranceId) ?: return
+                val next = advance(position.first, position.second)
+
+                if (next == null) {
                     paused = true
-                    prefs.edit().putBoolean("available", false).putBoolean("playing", false).apply()
+                    prefs.edit()
+                        .putBoolean("available", false)
+                        .putBoolean("playing", false)
+                        .apply()
                     updateNotification(false)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
-                } else {
-                    saveProgress(true)
-                    speakCurrent()
+                    return
+                }
+
+                currentPage = next.first
+                currentSentence = next.second
+                saveProgress(true)
+
+                // A próxima frase já foi colocada na fila pelo prefetch.
+                // Só completamos a fila quando ela estiver perto do fim.
+                if (queuedUntilPage < currentPage ||
+                    queuedUntilSentence < currentSentence + 1
+                ) {
+                    queueFollowingSentences()
                 }
             }
 
             @Suppress("DEPRECATION")
             override fun onError(utteranceId: String?) {
+                if (!isReaderUtterance(utteranceId)) return
                 paused = true
                 saveProgress(false)
                 updateNotification(false)
@@ -116,8 +155,10 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
         when (intent?.action) {
             ACTION_PAUSE -> pauseReading()
             ACTION_STOP -> stopReading()
+
             ACTION_PLAY -> {
                 val incomingPages = intent.getStringArrayListExtra(EXTRA_PAGES)
+
                 if (!incomingPages.isNullOrEmpty()) {
                     pages = incomingPages
                     uri = intent.getStringExtra(EXTRA_URI).orEmpty()
@@ -127,69 +168,166 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                     currentPage = intent.getIntExtra(EXTRA_PAGE, 1).coerceIn(1, pages.size)
                     currentSentence = intent.getIntExtra(EXTRA_CHUNK, 0).coerceAtLeast(0)
                 }
+
                 paused = false
                 ensureForeground()
-                saveProgress(true)
-                if (ready) speakCurrent()
+
+                if (ready) {
+                    configureVoiceOnce()
+                    speakCurrent(resetQueue = true)
+                }
             }
         }
+
         return START_STICKY
     }
 
-    private fun currentParts(): List<Pair<String, String>> =
-        pages.getOrNull(currentPage - 1)?.let(::sentenceParts).orEmpty()
+    private var configuredVoice: String? = null
+    private var queuedUntilPage = -1
+    private var queuedUntilSentence = -1
 
-    private fun speakCurrent() {
-        if (!ready || paused || pages.isEmpty() || currentPage > pages.size) return
-        val parts = currentParts()
-        if (currentSentence >= parts.size) {
-            currentPage++
-            currentSentence = 0
-            if (currentPage > pages.size) return
-            speakCurrent()
-            return
+    private fun configureVoiceOnce() {
+        val wanted = voiceName?.let { name ->
+            tts.voices?.firstOrNull { it.name == name }
         }
 
-        val (spoken, original) = parts[currentSentence]
-        tts.stop()
-        tts.setSpeechRate(rate)
-
-        val selected = voiceName?.let { wanted -> tts.voices?.firstOrNull { it.name == wanted } }
-        if (selected != null) {
-            val languageResult = tts.setLanguage(selected.locale)
-            if (languageResult != TextToSpeech.LANG_MISSING_DATA &&
-                languageResult != TextToSpeech.LANG_NOT_SUPPORTED
-            ) {
-                // setLanguage pode trocar a voz; por isso a voz escolhida
-                // precisa ser aplicada por ultimo.
-                tts.voice = selected
-            } else {
-                tts.setLanguage(Locale("pt", "BR"))
+        if (wanted != null) {
+            if (configuredVoice != wanted.name) {
+                val result = tts.setLanguage(wanted.locale)
+                if (result == TextToSpeech.LANG_MISSING_DATA ||
+                    result == TextToSpeech.LANG_NOT_SUPPORTED
+                ) {
+                    tts.setLanguage(Locale("pt", "BR"))
+                } else {
+                    tts.voice = wanted
+                }
+                configuredVoice = wanted.name
             }
-        } else {
-            val result = tts.setLanguage(java.util.Locale("pt", "BR"))
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+        } else if (configuredVoice != "default-pt-BR") {
+            val result = tts.setLanguage(Locale("pt", "BR"))
+            if (result == TextToSpeech.LANG_MISSING_DATA ||
+                result == TextToSpeech.LANG_NOT_SUPPORTED
+            ) {
                 paused = true
                 saveProgress(false)
                 updateNotification(false)
                 return
             }
+            configuredVoice = "default-pt-BR"
         }
 
-        prefs.edit()
-            .putInt("current_page", currentPage)
-            .putInt("current_sentence", currentSentence)
-            .putString("highlight_text", original)
-            .putBoolean("playing", true)
-            .apply()
+        tts.setSpeechRate(rate)
+        // Pitch ligeiramente abaixo do padrão tende a soar menos robótico
+        // sem alterar a velocidade da leitura.
+        tts.setPitch(0.98f)
+    }
 
-        tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "pdf-reader-$currentPage-$currentSentence")
+    private fun speakCurrent(resetQueue: Boolean = false) {
+        if (!ready || paused || pages.isEmpty()) return
+
+        configureVoiceOnce()
+
+        if (resetQueue) {
+            tts.stop()
+            queuedUntilPage = -1
+            queuedUntilSentence = -1
+        }
+
+        val parts = currentParts()
+        if (currentSentence >= parts.size) {
+            val next = advance(currentPage, currentSentence - 1) ?: return
+            currentPage = next.first
+            currentSentence = next.second
+        }
+
+        val position = currentPage to currentSentence
+        val id = utteranceId(position.first, position.second)
+        val spoken = currentParts().getOrNull(currentSentence)?.first ?: return
+
+        val queueMode = if (resetQueue) {
+            TextToSpeech.QUEUE_FLUSH
+        } else {
+            TextToSpeech.QUEUE_ADD
+        }
+
+        tts.speak(spoken, queueMode, null, id)
+        queuedUntilPage = position.first
+        queuedUntilSentence = position.second
+
+        queueFollowingSentences()
+        saveProgress(true)
         updateNotification(true)
+    }
+
+    private fun queueFollowingSentences() {
+        var pageIndex = queuedUntilPage
+        var sentenceIndex = queuedUntilSentence + 1
+        var added = 0
+
+        while (added < PREFETCH_SENTENCES) {
+            val parts = pages.getOrNull(pageIndex - 1)?.let(::sentenceParts).orEmpty()
+
+            if (sentenceIndex >= parts.size) {
+                pageIndex++
+                sentenceIndex = 0
+                if (pageIndex > pages.size) break
+                continue
+            }
+
+            val spoken = parts[sentenceIndex].first
+            tts.speak(
+                spoken,
+                TextToSpeech.QUEUE_ADD,
+                null,
+                utteranceId(pageIndex, sentenceIndex)
+            )
+
+            queuedUntilPage = pageIndex
+            queuedUntilSentence = sentenceIndex
+            sentenceIndex++
+            added++
+        }
+    }
+
+    private fun currentParts(): List<Pair<String, String>> =
+        pages.getOrNull(currentPage - 1)?.let(::sentenceParts).orEmpty()
+
+    private fun advance(page: Int, sentence: Int): Pair<Int, Int>? {
+        val parts = pages.getOrNull(page - 1)?.let(::sentenceParts).orEmpty()
+        val nextSentence = sentence + 1
+
+        if (nextSentence < parts.size) {
+            return page to nextSentence
+        }
+
+        val nextPage = page + 1
+        if (nextPage > pages.size) return null
+
+        return nextPage to 0
+    }
+
+    private fun utteranceId(page: Int, sentence: Int): String =
+        "pdf-reader-$page-$sentence"
+
+    private fun isReaderUtterance(id: String?): Boolean =
+        id?.startsWith("pdf-reader-") == true
+
+    private fun parsePosition(id: String): Pair<Int, Int>? {
+        val match = Regex("^pdf-reader-(\\d+)-(\\d+)$").find(id ?: return null)
+            ?: return null
+
+        return match.groupValues[1].toIntOrNull()?.let { page ->
+            match.groupValues[2].toIntOrNull()?.let { sentence ->
+                page to sentence
+            }
+        }
     }
 
     private fun pauseReading() {
         tts.stop()
         paused = true
+        queuedUntilPage = -1
+        queuedUntilSentence = -1
         saveProgress(false)
         updateNotification(false)
     }
@@ -197,6 +335,8 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     private fun stopReading() {
         tts.stop()
         paused = true
+        queuedUntilPage = -1
+        queuedUntilSentence = -1
         saveProgress(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -204,6 +344,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
 
     private fun saveProgress(playing: Boolean) {
         if (uri.isBlank()) return
+
         prefs.edit()
             .putString("uri", uri)
             .putInt("page", currentPage)
@@ -245,6 +386,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
             ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
         val stop = PendingIntent.getService(
             this,
             2,
@@ -264,7 +406,11 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                 if (playing) "Pausar" else "Continuar",
                 toggle
             )
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Parar", stop)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Parar",
+                stop
+            )
             .build()
     }
 
@@ -282,7 +428,11 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             ready = true
-            if (pages.isNotEmpty() && !paused) speakCurrent()
+            configureVoiceOnce()
+
+            if (pages.isNotEmpty() && !paused) {
+                speakCurrent(resetQueue = true)
+            }
         }
     }
 
