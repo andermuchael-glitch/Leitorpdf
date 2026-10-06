@@ -5,29 +5,38 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.os.Build
+import android.os.Bundle
+import android.os.Environment
 import android.os.IBinder
+import android.provider.MediaStore
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.security.MessageDigest
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.Locale
 
 class PdfSpeechService : Service() {
     companion object {
         const val ACTION_PLAY = "br.com.leitorpdf.PLAY"
         const val ACTION_PAUSE = "br.com.leitorpdf.PAUSE"
         const val ACTION_STOP = "br.com.leitorpdf.STOP"
+        const val ACTION_EXPORT_PAGE = "br.com.leitorpdf.EXPORT_PAGE"
+
         const val EXTRA_PAGES = "pages"
         const val EXTRA_URI = "uri"
         const val EXTRA_FILE_NAME = "fileName"
@@ -39,243 +48,224 @@ class PdfSpeechService : Service() {
         private const val CHANNEL = "pdf_reading"
         private const val ID = 365
         private const val PREFS = "reading_progress"
-        private const val MAX_CACHE_FILES = 80
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
 
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var pendingPlay = false
+    private var pendingExport = false
+
     private var pages = emptyList<String>()
     private var page = 1
     private var sentence = 0
     private var rate = 1f
-    private var voice = KokoroLocalTts.VOICE_ALEX
+    private var voiceName: String? = null
     private var uri = ""
     private var fileName = "PDF"
     private var paused = false
-    private var player: MediaPlayer? = null
     private var generation = 0L
+    private var audioFocusRequest: AudioFocusRequest? = null
     private var audioFocusGranted = false
 
     override fun onCreate() {
         super.onCreate()
         channel()
+
+        tts = TextToSpeech(this) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) {
+                configureTts()
+                if (pendingExport) {
+                    pendingExport = false
+                    exportPage()
+                } else if (pendingPlay) {
+                    pendingPlay = false
+                    beginPlayback()
+                }
+            } else {
+                fail("O mecanismo TTS do Android não está disponível.")
+            }
+        }
+
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                val parsed = parseUtterance(utteranceId) ?: return
+                if (paused) return
+                page = parsed.first
+                sentence = parsed.second
+                saveProgress(true)
+                notifyReading()
+            }
+
+            override fun onDone(utteranceId: String?) {
+                val parsed = parseUtterance(utteranceId) ?: return
+                if (paused) return
+
+                val p = parsed.first
+                val s = parsed.second
+                val parts = parts(pages.getOrNull(p - 1).orEmpty())
+
+                if (s + 1 < parts.size) {
+                    return
+                }
+
+                if (p < pages.size) {
+                    page = p + 1
+                    sentence = 0
+                    scope.launch { queueCurrentPage(generation) }
+                } else {
+                    paused = true
+                    prefs.edit()
+                        .putBoolean("playing", false)
+                        .putBoolean("available", false)
+                        .remove("highlight_text")
+                        .apply()
+                    notify(false, "Leitura concluída")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+
+            override fun onError(utteranceId: String?) {
+                if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
+            }
+        })
     }
 
     override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
         when (i?.action) {
             ACTION_PAUSE -> pause()
-            ACTION_STOP -> stop()
+            ACTION_STOP -> stopReading()
             ACTION_PLAY -> {
-                i.getStringArrayListExtra(EXTRA_PAGES)?.takeIf { it.isNotEmpty() }?.let {
-                    pages = it
-                    uri = i.getStringExtra(EXTRA_URI).orEmpty()
-                    fileName = i.getStringExtra(EXTRA_FILE_NAME) ?: "PDF"
-                    rate = i.getFloatExtra(EXTRA_RATE, 1f).coerceIn(.5f, 2f)
-                    voice = i.getStringExtra(EXTRA_VOICE)
-                        ?.takeIf { v -> KokoroLocalTts.voices.any { it.id == v } }
-                        ?: KokoroLocalTts.VOICE_ALEX
-                    page = i.getIntExtra(EXTRA_PAGE, 1).coerceIn(1, pages.size)
-                    sentence = i.getIntExtra(EXTRA_CHUNK, 0).coerceAtLeast(0)
-                }
+                readExtras(i)
                 paused = false
                 foreground()
-                start()
+                if (ttsReady) beginPlayback() else pendingPlay = true
+            }
+            ACTION_EXPORT_PAGE -> {
+                readExtras(i)
+                paused = false
+                foreground()
+                if (ttsReady) exportPage() else pendingExport = true
             }
         }
         return START_STICKY
     }
 
-    private fun start() {
+    private fun readExtras(i: Intent) {
+        i.getStringArrayListExtra(EXTRA_PAGES)?.takeIf { it.isNotEmpty() }?.let { pages = it }
+        uri = i.getStringExtra(EXTRA_URI).orEmpty()
+        fileName = i.getStringExtra(EXTRA_FILE_NAME) ?: "PDF"
+        rate = i.getFloatExtra(EXTRA_RATE, 1f).coerceIn(.5f, 2f)
+        voiceName = i.getStringExtra(EXTRA_VOICE)
+        page = i.getIntExtra(EXTRA_PAGE, 1).coerceIn(1, pages.size.coerceAtLeast(1))
+        sentence = i.getIntExtra(EXTRA_CHUNK, 0).coerceAtLeast(0)
+    }
+
+    private fun configureTts() {
+        val engine = tts ?: return
+        val selected = AndroidTts.findVoice(engine, voiceName)
+        if (selected != null) {
+            runCatching { engine.voice = selected }
+        } else {
+            runCatching { engine.language = Locale("pt", "BR") }
+        }
+        engine.setSpeechRate(rate)
+        engine.setPitch(1f)
+    }
+
+    private fun beginPlayback() {
+        if (!ttsReady || pages.isEmpty()) {
+            fail("Não há texto disponível para narrar.")
+            return
+        }
+
         val g = ++generation
-        scope.launch {
-            try {
-                if (!KokoroLocalTts.isReady(this@PdfSpeechService)) {
-                    prefs.edit()
-                        .putBoolean("playing", false)
-                        .putBoolean("kokoro_downloading", true)
-                        .putInt("kokoro_progress", 0)
-                        .remove("speech_error")
-                        .apply()
-                    notify(false, "Baixando modelo de voz neural…")
-
-                    withContext(Dispatchers.IO) {
-                        KokoroLocalTts.prepare(this@PdfSpeechService) { progress ->
-                            prefs.edit()
-                                .putBoolean("kokoro_downloading", true)
-                                .putInt("kokoro_progress", progress)
-                                .apply()
-                            notify(false, "Preparando voz neural • $progress%")
-                        }
-                    }
-                    prefs.edit()
-                        .putBoolean("kokoro_downloading", false)
-                        .putInt("kokoro_progress", 100)
-                        .apply()
-                }
-
-                if (g != generation || paused) return@launch
-                localSegment(g, voice)
-            } catch (e: Throwable) {
-                if (g == generation && !paused) {
-                    fail(e.message ?: "Não foi possível preparar a voz neural offline.")
-                }
-            }
-        }
-    }
-
-    private fun localSegment(g: Long, selectedVoice: String) {
-        val p = normalize() ?: return
-        scope.launch {
-            try {
-                val file = withContext(Dispatchers.Default) {
-                    val text = parts(pages[p.first - 1]).getOrNull(p.second)?.first
-                        ?: return@withContext null
-                    val cached = cacheFile(text, selectedVoice, rate)
-                    if (cached.isFile && cached.length() > 44L) {
-                        cached
-                    } else {
-                        KokoroLocalTts.synthesize(
-                            this@PdfSpeechService,
-                            text,
-                            selectedVoice,
-                            rate,
-                            cached
-                        )
-                    }
-                }
-
-                if (g != generation || paused) return@launch
-                if (file == null || !file.isFile || file.length() <= 44L) {
-                    fail("O áudio neural foi gerado vazio ou inválido.")
-                    return@launch
-                }
-
-                started(p.first, p.second)
-                play(file, g, p)
-            } catch (e: Throwable) {
-                if (g == generation && !paused) {
-                    fail(e.message ?: "Erro ao gerar a voz neural.")
-                }
-            }
-        }
-    }
-
-    private fun play(file: File, g: Long, p: Pair<Int, Int>) {
-        release()
-        val m = MediaPlayer()
-        player = m
-        m.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-        )
-        m.setVolume(1.0f, 1.0f)
+        paused = false
         requestAudioFocus()
+        configureTts()
 
-        try {
-            m.setDataSource(file.absolutePath)
-        } catch (_: Throwable) {
-            release()
-            if (g == generation && !paused) fail("Falha ao abrir o áudio neural.")
+        tts?.stop()
+        scope.launch { queueCurrentPage(g) }
+    }
+
+    private suspend fun queueCurrentPage(g: Long) {
+        if (g != generation || paused || !ttsReady) return
+
+        val currentParts = parts(pages.getOrNull(page - 1).orEmpty())
+        if (currentParts.isEmpty()) {
+            if (page < pages.size) {
+                page++
+                sentence = 0
+                queueCurrentPage(g)
+            } else {
+                finishReading()
+            }
             return
         }
 
-        m.setOnPreparedListener {
-            if (g != generation || paused) {
-                release()
-                return@setOnPreparedListener
+        val start = sentence.coerceIn(0, currentParts.lastIndex)
+        val engine = tts ?: return
+
+        withContext(Dispatchers.Main.immediate) {
+            if (g != generation || paused) return@withContext
+            engine.stop()
+            for (index in start..currentParts.lastIndex) {
+                val spoken = currentParts[index].first
+                val id = utteranceId(page, index)
+                val result = engine.speak(
+                    spoken,
+                    if (index == start) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                    Bundle(),
+                    id
+                )
+                if (result == TextToSpeech.ERROR) {
+                    fail("Não foi possível iniciar a narração.")
+                    return@withContext
+                }
             }
-            m.start()
-            started(p.first, p.second)
-            save(true)
-            notify(true)
-        }
-
-        m.setOnCompletionListener {
-            if (g != generation || paused) return@setOnCompletionListener
-            release()
-            finished(p.first, p.second)
-        }
-
-        m.setOnErrorListener { _, _, _ ->
-            if (g == generation && !paused) fail("Falha ao reproduzir o áudio neural.")
-            release()
-            true
-        }
-
-        try {
-            m.prepareAsync()
-        } catch (_: Throwable) {
-            release()
-            if (g == generation && !paused) fail("Falha ao preparar o áudio neural.")
         }
     }
 
-    private fun started(p: Int, s: Int) {
-        page = p
-        sentence = s
-        val original = parts(pages.getOrNull(p - 1).orEmpty())
-            .getOrNull(s)?.second.orEmpty()
-
+    private fun finishReading() {
+        paused = true
         prefs.edit()
-            .putInt("current_page", p)
-            .putInt("current_sentence", s)
-            .putString("highlight_text", original)
-            .putBoolean("playing", true)
-            .putBoolean("available", true)
-            .remove("speech_error")
+            .putBoolean("playing", false)
+            .putBoolean("available", false)
+            .remove("highlight_text")
             .apply()
-
-        save(true)
-        notify(true)
+        notify(false, "Leitura concluída")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
-    private fun finished(p: Int, s: Int) {
-        if (paused) return
-        val n = advance(p, s)
-        if (n == null) {
-            paused = true
-            prefs.edit()
-                .putBoolean("available", false)
-                .putBoolean("playing", false)
-                .apply()
-            notify(false)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return
-        }
-
-        page = n.first
-        sentence = n.second
-        save(true)
-        scope.launch(Dispatchers.Main.immediate) {
-            localSegment(generation, voice)
-        }
+    private fun pause() {
+        paused = true
+        generation++
+        tts?.stop()
+        abandonAudioFocus()
+        saveProgress(false)
+        notify(false, "Pausado")
     }
 
-    private fun normalize(): Pair<Int, Int>? {
-        var p = page.coerceIn(1, pages.size)
-        var s = sentence.coerceAtLeast(0)
-
-        while (p <= pages.size) {
-            val ps = parts(pages[p - 1])
-            if (s < ps.size) {
-                page = p
-                sentence = s
-                return p to s
-            }
-            p++
-            s = 0
-        }
-        return null
-    }
-
-    private fun advance(p: Int, s: Int): Pair<Int, Int>? {
-        val ps = parts(pages.getOrNull(p - 1).orEmpty())
-        if (s + 1 < ps.size) return p to s + 1
-        return if (p + 1 <= pages.size) p + 1 to 0 else null
+    private fun stopReading() {
+        paused = true
+        generation++
+        tts?.stop()
+        abandonAudioFocus()
+        prefs.edit()
+            .putBoolean("playing", false)
+            .remove("highlight_text")
+            .apply()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun parts(text: String): List<Pair<String, String>> {
@@ -286,26 +276,28 @@ class PdfSpeechService : Service() {
 
         if (normalized.isBlank()) return emptyList()
 
-        val sentences = normalized
+        val blocks = normalized
             .split(Regex("(?<=[.!?…])\\s+|\\n{2,}"))
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
         val result = mutableListOf<Pair<String, String>>()
-        for (sentenceText in sentences) {
-            if (sentenceText.length <= 280) {
-                result += sentenceText to sentenceText
+        for (original in blocks) {
+            val spoken = normalizeReferences(original)
+            if (original.length <= 320) {
+                result += spoken to original
             } else {
                 var start = 0
-                while (start < sentenceText.length) {
-                    var end = minOf(start + 280, sentenceText.length)
-                    if (end < sentenceText.length) {
-                        val breakAt = sentenceText.substring(start, end).lastIndexOf(' ')
-                            .let { if (it >= 0) start + it else start }
-                        if (breakAt > start + 120) end = breakAt
+                while (start < original.length) {
+                    var end = minOf(start + 320, original.length)
+                    if (end < original.length) {
+                        val local = original.substring(start, end).lastIndexOf(' ')
+                        if (local > 120) end = start + local
                     }
-                    val chunk = sentenceText.substring(start, end).trim()
-                    if (chunk.isNotBlank()) result += chunk to chunk
+                    val piece = original.substring(start, end).trim()
+                    if (piece.isNotBlank()) {
+                        result += normalizeReferences(piece) to piece
+                    }
                     start = end
                 }
             }
@@ -313,72 +305,29 @@ class PdfSpeechService : Service() {
         return result
     }
 
-    private fun cacheFile(text: String, selectedVoice: String, speed: Float): File {
-        val input = "$selectedVoice|$speed|$text"
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(input.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        val dir = File(cacheDir, "kokoro_audio").apply { mkdirs() }
-        return File(dir, "$digest.wav")
-    }
-
-    private fun pruneCache() {
-        val dir = File(cacheDir, "kokoro_audio")
-        val files = dir.listFiles()
-            ?.filter { it.isFile }
-            ?.sortedByDescending { it.lastModified() }
-            ?: return
-        files.drop(MAX_CACHE_FILES).forEach { it.delete() }
-    }
-
-    private fun pause() {
-        paused = true
-        generation++
-        release()
-        save(false)
-        notify(false)
-    }
-
-    private fun stop() {
-        paused = true
-        generation++
-        release()
-        save(false)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
-    private fun release() {
-        player?.let {
-            runCatching { it.stop() }
-            runCatching { it.reset() }
-            runCatching { it.release() }
-        }
-        player = null
-        abandonAudioFocus()
-    }
-
-    private fun requestAudioFocus() {
-        val manager = getSystemService(AudioManager::class.java) ?: return
-        if (Build.VERSION.SDK_INT >= 26) {
-            val request = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                .build()
-            audioFocusGranted = manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        } else {
-            audioFocusGranted = manager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    private fun normalizeReferences(text: String): String {
+        val regex = Regex("\\b([\\p{L}0-9]+(?:\\s+[\\p{L}0-9]+)?)\\s+(\\d+)\\.(\\d+)-(\\d+)\\b")
+        return text.replace(regex) {
+            "${it.groupValues[1]} ${it.groupValues[2]} do ${it.groupValues[3]} ao ${it.groupValues[4]}"
         }
     }
 
-    private fun abandonAudioFocus() {
-        if (!audioFocusGranted) return
-        val manager = getSystemService(AudioManager::class.java) ?: return
-        if (Build.VERSION.SDK_INT < 26) manager.abandonAudioFocus(null)
-        audioFocusGranted = false
+    private fun utteranceId(p: Int, s: Int): String = "pdf:$p:$s"
+
+    private fun parseUtterance(id: String?): Pair<Int, Int>? {
+        val value = id ?: return null
+        val parts = value.split(":")
+        if (parts.size != 3 || parts[0] != "pdf") return null
+        return parts[1].toIntOrNull()?.let { p ->
+            parts[2].toIntOrNull()?.let { s -> p to s }
+        }
     }
 
-    private fun save(playing: Boolean) {
+    private fun saveProgress(playing: Boolean) {
         if (uri.isBlank()) return
+        val original = parts(pages.getOrNull(page - 1).orEmpty())
+            .getOrNull(sentence)?.second.orEmpty()
+
         prefs.edit()
             .putString("uri", uri)
             .putInt("page", page)
@@ -386,14 +335,191 @@ class PdfSpeechService : Service() {
             .putInt("current_page", page)
             .putInt("current_sentence", sentence)
             .putFloat("rate", rate)
-            .putString("voice", voice)
+            .putString("voice", voiceName)
             .putBoolean("available", true)
             .putBoolean("playing", playing)
+            .putString("highlight_text", if (playing) original else "")
             .apply()
     }
 
+    private fun exportPage() {
+        if (!ttsReady || pages.isEmpty()) {
+            finishExport("Não foi possível iniciar a exportação.")
+            return
+        }
+
+        val targetPage = page.coerceIn(1, pages.size)
+        val targetParts = parts(pages[targetPage - 1])
+        if (targetParts.isEmpty()) {
+            finishExport("Esta página não possui texto para narrar.")
+            return
+        }
+
+        val g = ++generation
+        scope.launch(Dispatchers.IO) {
+            try {
+                val tempDir = File(cacheDir, "tts_export").apply { mkdirs() }
+                var done = 0
+
+                for ((index, pair) in targetParts.withIndex()) {
+                    if (g != generation) return@launch
+                    val temp = File(tempDir, "part_$index.wav")
+                    if (temp.exists()) temp.delete()
+
+                    val ok = synthesizeToFile(pair.first, temp)
+                    if (!ok || !temp.isFile || temp.length() < 100) {
+                        throw IllegalStateException("Falha ao gerar o áudio do trecho ${index + 1}.")
+                    }
+
+                    val safeName = sanitize(fileName.substringBeforeLast('.'))
+                    val display = "${safeName}_pagina_${targetPage}_trecho_${index + 1}.wav"
+                    saveToDownloads(temp, display)
+                    done++
+                    prefs.edit()
+                        .putBoolean("exporting", true)
+                        .putInt("export_progress", ((done * 100f) / targetParts.size).toInt())
+                        .putString("export_message", "Salvando trecho $done de ${targetParts.size}…")
+                        .apply()
+                }
+
+                prefs.edit()
+                    .putBoolean("exporting", false)
+                    .putInt("export_progress", 100)
+                    .putString("export_message", "$done arquivos salvos em Downloads/LeitorPDF.")
+                    .apply()
+                notify(false, "$done arquivos salvos em Downloads/LeitorPDF")
+            } catch (e: Throwable) {
+                finishExport(e.message ?: "Não foi possível salvar os arquivos de áudio.")
+            } finally {
+                File(cacheDir, "tts_export").deleteRecursively()
+            }
+        }
+    }
+
+    private suspend fun synthesizeToFile(text: String, file: File): Boolean =
+        kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+            val engine = tts
+            if (engine == null) {
+                continuation.resume(false) {}
+                return@suspendCancellableCoroutine
+            }
+
+            val utterance = "export_${System.nanoTime()}"
+            val listener = object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    if (utteranceId == utterance && continuation.isActive) {
+                        continuation.resume(true) {}
+                    }
+                }
+                override fun onError(utteranceId: String?) {
+                    if (utteranceId == utterance && continuation.isActive) {
+                        continuation.resume(false) {}
+                    }
+                }
+            }
+
+            scope.launch(Dispatchers.Main.immediate) {
+                val old = engine
+                old.setOnUtteranceProgressListener(listener)
+                val result = old.synthesizeToFile(
+                    text,
+                    Bundle(),
+                    file,
+                    utterance
+                )
+                if (result == TextToSpeech.ERROR && continuation.isActive) {
+                    continuation.resume(false) {}
+                }
+            }
+
+            continuation.invokeOnCancellation {
+                runCatching { engine.stop() }
+            }
+        }
+
+    private fun saveToDownloads(source: File, displayName: String) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, "audio/wav")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/LeitorPDF")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val resolver = contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: error("Não foi possível criar o arquivo em Downloads.")
+
+            try {
+                resolver.openOutputStream(uri)?.use { output ->
+                    FileInputStream(source).use { input -> input.copyTo(output) }
+                } ?: error("Não foi possível gravar o arquivo de áudio.")
+
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            } catch (e: Throwable) {
+                resolver.delete(uri, null, null)
+                throw e
+            }
+        } else {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                .resolve("LeitorPDF")
+                .apply { mkdirs() }
+            source.copyTo(File(dir, displayName), overwrite = true)
+        }
+    }
+
+    private fun sanitize(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9À-ÿ _-]"), "_").trim().ifBlank { "PDF" }
+
+    private fun finishExport(message: String) {
+        prefs.edit()
+            .putBoolean("exporting", false)
+            .putInt("export_progress", 0)
+            .putString("export_message", message)
+            .apply()
+        notify(false, message)
+    }
+
+    private fun requestAudioFocus() {
+        val manager = getSystemService(AudioManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= 26) {
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attributes)
+                .setWillPauseWhenDucked(false)
+                .build()
+            audioFocusRequest = request
+            audioFocusGranted =
+                manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            audioFocusGranted = manager.requestAudioFocus(
+                null,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        if (!audioFocusGranted) return
+        val manager = getSystemService(AudioManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= 26) {
+            audioFocusRequest?.let { manager.abandonAudioFocusRequest(it) }
+        } else {
+            manager.abandonAudioFocus(null)
+        }
+        audioFocusGranted = false
+        audioFocusRequest = null
+    }
+
     private fun foreground() {
-        val notification = build(false, "Preparando voz neural offline…")
+        val notification = build(false, "Leitor PDF")
         if (Build.VERSION.SDK_INT >= 29) {
             ServiceCompat.startForeground(
                 this,
@@ -406,6 +532,10 @@ class PdfSpeechService : Service() {
         }
     }
 
+    private fun notifyReading() {
+        notify(true, null)
+    }
+
     private fun notify(playing: Boolean, message: String? = null) {
         getSystemService(NotificationManager::class.java)
             .notify(ID, build(playing, message))
@@ -416,9 +546,19 @@ class PdfSpeechService : Service() {
             this,
             1,
             Intent(this, PdfSpeechService::class.java)
-                .setAction(if (playing) ACTION_PAUSE else ACTION_PLAY),
+                .setAction(if (playing) ACTION_PAUSE else ACTION_PLAY)
+                .apply {
+                    putExtra(EXTRA_URI, uri)
+                    putExtra(EXTRA_FILE_NAME, fileName)
+                    putExtra(EXTRA_RATE, rate)
+                    putExtra(EXTRA_VOICE, voiceName)
+                    putExtra(EXTRA_PAGE, page)
+                    putExtra(EXTRA_CHUNK, sentence)
+                    putStringArrayListExtra(EXTRA_PAGES, ArrayList(pages))
+                },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
         val stop = PendingIntent.getService(
             this,
             2,
@@ -429,19 +569,13 @@ class PdfSpeechService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(
-                "Leitor PDF • " +
-                    if (playing) "Narrador neural" else "Voz neural offline"
-            )
-            .setContentText(
-                message ?: "$fileName • página $page de \${pages.size}"
-            )
+            .setContentTitle("Leitor PDF • Narração")
+            .setContentText(message ?: "$fileName • página $page de ${pages.size}")
             .setOngoing(playing || message != null)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .addAction(
-                if (playing) android.R.drawable.ic_media_pause
-                else android.R.drawable.ic_media_play,
+                if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
                 if (playing) "Pausar" else "Continuar",
                 toggle
             )
@@ -467,22 +601,24 @@ class PdfSpeechService : Service() {
     private fun fail(message: String) {
         paused = true
         generation++
-        release()
+        tts?.stop()
+        abandonAudioFocus()
         prefs.edit()
             .putBoolean("playing", false)
             .putString("speech_error", message)
-            .putBoolean("kokoro_downloading", false)
             .apply()
         notify(false, message)
     }
 
     override fun onDestroy() {
         generation++
+        paused = true
+        runCatching { tts?.stop() }
+        runCatching { tts?.shutdown() }
+        abandonAudioFocus()
         scope.cancel()
-        release()
-        KokoroLocalTts.release()
         super.onDestroy()
     }
 
-    override fun onBind(i: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? = null
 }
