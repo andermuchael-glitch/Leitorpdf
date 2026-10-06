@@ -140,7 +140,7 @@ fun ReaderScreen(uri: Uri, fileName: String, viewModel: ReaderViewModel, onBack:
                             steps = 5,
                             modifier = Modifier.weight(1f)
                         )
-                        Text("\${state.speechRate.roundToInt()}x")
+                        Text("${state.speechRate}x")
                     }
                 }
             }
