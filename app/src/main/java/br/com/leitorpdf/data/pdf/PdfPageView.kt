@@ -20,6 +20,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class PdfPageView(context: Context) : View(context) {
     private var document: PDDocument? = null
@@ -27,11 +30,13 @@ class PdfPageView(context: Context) : View(context) {
     private var bitmap: Bitmap? = null
     private var renderJob: Job? = null
     private var highlightJob: Job? = null
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(105, 255, 220, 0)
+        color = Color.argb(150, 255, 214, 0)
         style = Paint.Style.FILL
     }
+
     private var highlightText = ""
     private var highlightRects: List<RectF> = emptyList()
     private var textPositions: List<TextPosition> = emptyList()
@@ -49,6 +54,7 @@ class PdfPageView(context: Context) : View(context) {
 
     init {
         setBackgroundColor(Color.rgb(238, 240, 244))
+        isFocusable = true
     }
 
     fun open(uri: Uri, scope: CoroutineScope, onReady: (Int) -> Unit, onError: (Throwable) -> Unit) {
@@ -60,12 +66,14 @@ class PdfPageView(context: Context) : View(context) {
                     ?: error("Não foi possível abrir o PDF.")
                 val doc = input.use { PDDocument.load(it) }
                 val pdfRenderer = PDFRenderer(doc).apply { setSubsamplingAllowed(true) }
+
                 withContext(Dispatchers.Main) {
                     document = doc
                     renderer = pdfRenderer
                     pageCount = doc.numberOfPages
                     currentPage = 0
                     renderCurrent(scope)
+                    prepareHighlightPage(scope)
                     onReady(pageCount)
                 }
             } catch (t: Throwable) {
@@ -77,21 +85,33 @@ class PdfPageView(context: Context) : View(context) {
     fun goToPage(page: Int, scope: CoroutineScope) {
         if (pageCount <= 0) return
         val target = page.coerceIn(0, pageCount - 1)
-        if (currentPage == target) return
+        if (currentPage == target && bitmap != null) {
+            prepareHighlightPage(scope)
+            return
+        }
+
         currentPage = target
         highlightRects = emptyList()
         lastHighlightEnd = 0
+        textPage = -1
         invalidate()
+
         renderCurrent(scope)
         prepareHighlightPage(scope)
     }
 
     fun setHighlightText(text: String, scope: CoroutineScope) {
         if (highlightText == text) return
+
         highlightText = text
+        // O TTS muda o trecho com frequência. Nunca fazemos extração do PDF
+        // na thread principal: somente a busca/mapeamento já preparado é usado.
         updateHighlightRects()
         invalidate()
-        if (textPage != currentPage) prepareHighlightPage(scope)
+
+        if (textPage != currentPage) {
+            prepareHighlightPage(scope)
+        }
     }
 
     fun setFilterMode(mode: Int) {
@@ -104,9 +124,18 @@ class PdfPageView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setHighlightEnabled(enabled: Boolean) {
+        if (!enabled) {
+            highlightText = ""
+            highlightRects = emptyList()
+            invalidate()
+        }
+    }
+
     private fun renderCurrent(scope: CoroutineScope) {
         val pdfRenderer = renderer ?: return
         val targetPage = currentPage
+
         renderJob?.cancel()
         renderJob = scope.launch(Dispatchers.IO) {
             try {
@@ -125,31 +154,67 @@ class PdfPageView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * Prepara o mapa visual uma vez por página.
+     *
+     * O PDF usa origem no canto inferior esquerdo, enquanto a View usa origem
+     * no canto superior esquerdo. A ordenação explícita por linha + X evita o
+     * efeito de o marca-texto começar no final da página e "subir".
+     */
     private fun prepareHighlightPage(scope: CoroutineScope) {
         val doc = document ?: return
         val targetPage = currentPage
+
         highlightJob?.cancel()
         highlightJob = scope.launch(Dispatchers.IO) {
             try {
-                val positions = mutableListOf<TextPosition>()
+                val rawPositions = mutableListOf<TextPosition>()
                 val stripper = object : PDFTextStripper() {
-                    override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
-                        if (textPositions != null) positions.addAll(textPositions)
+                    override fun writeString(
+                        text: String?,
+                        textPositions: MutableList<TextPosition>?
+                    ) {
+                        if (textPositions != null) rawPositions.addAll(textPositions)
                     }
                 }
+
                 stripper.sortByPosition = true
                 stripper.startPage = targetPage + 1
                 stripper.endPage = targetPage + 1
                 stripper.getText(doc)
 
+                val positions = rawPositions
+                    .filter { it.unicode?.isNotEmpty() == true }
+                    .sortedWith(
+                        compareByDescending<TextPosition> { it.y }
+                            .thenBy { it.x }
+                    )
+
                 val source = StringBuilder()
                 val mapping = mutableListOf<Int>()
+                var previous: TextPosition? = null
+
                 positions.forEachIndexed { index, position ->
-                    val normalized = normalizeForMatch(position.unicode.orEmpty())
+                    if (previous != null) {
+                        val previousPosition = previous!!
+                        val sameLine = abs(position.y - previousPosition.y) <=
+                            max(1f, max(position.height, previousPosition.height) * 0.65f)
+
+                        if (!sameLine) {
+                            source.append(" ")
+                            mapping.add(-1)
+                        } else if (position.x - (previousPosition.x + previousPosition.width) > 1.5f) {
+                            source.append(" ")
+                            mapping.add(-1)
+                        }
+                    }
+
+                    val normalized = position.unicode.orEmpty()
                     normalized.forEach { ch ->
                         source.append(ch)
                         mapping.add(index)
                     }
+                    previous = position
                 }
 
                 withContext(Dispatchers.Main) {
@@ -158,6 +223,7 @@ class PdfPageView(context: Context) : View(context) {
                         textSource = source.toString()
                         textMapping = mapping
                         textPage = targetPage
+                        lastHighlightEnd = 0
                         updateHighlightRects()
                         invalidate()
                     }
@@ -167,6 +233,11 @@ class PdfPageView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * Encontra o próximo trecho em ordem de leitura e transforma os caracteres
+     * encontrados em poucos retângulos por linha. Isso reduz drasticamente o
+     * custo de desenho e elimina o lag causado por centenas de drawRect().
+     */
     private fun updateHighlightRects() {
         if (highlightText.isBlank() || textPage != currentPage || textSource.isBlank()) {
             highlightRects = emptyList()
@@ -179,33 +250,80 @@ class PdfPageView(context: Context) : View(context) {
             return
         }
 
-        val search = target.take(180)
-        var start = textSource.indexOf(search, lastHighlightEnd.coerceAtMost(textSource.length))
-        if (start < 0 && lastHighlightEnd > 0) {
-            start = textSource.indexOf(search)
+        val searchStart = lastHighlightEnd.coerceIn(0, textSource.length)
+        var start = textSource.indexOf(target, searchStart)
+
+        // Se a extração do TTS/PDF tiver pequenas diferenças, tenta uma versão
+        // mais curta sem voltar a destacar aleatoriamente o fim da página.
+        if (start < 0) {
+            val fallback = target.take(min(220, target.length))
+            start = textSource.indexOf(fallback, searchStart)
         }
+
+        if (start < 0 && searchStart > 0) {
+            start = textSource.indexOf(target)
+            if (start < 0) {
+                val fallback = target.take(min(220, target.length))
+                start = textSource.indexOf(fallback)
+            }
+        }
+
         if (start < 0) {
             highlightRects = emptyList()
             return
         }
-        lastHighlightEnd = start + search.length
 
-        val end = (start + search.length - 1).coerceAtMost(textMapping.lastIndex)
+        val effectiveLength = min(
+            target.length,
+            max(3, textSource.length - start)
+        )
+        val end = (start + effectiveLength - 1).coerceAtMost(textMapping.lastIndex)
+        lastHighlightEnd = start + effectiveLength
+
+        val selectedIndices = (start..end)
+            .mapNotNull { textMapping.getOrNull(it) }
+            .filter { it >= 0 }
+            .distinct()
+
+        if (selectedIndices.isEmpty()) {
+            highlightRects = emptyList()
+            return
+        }
+
         val pageHeight = document?.getPage(currentPage)?.mediaBox?.height ?: return
         val scale = 110f / 72f
 
-        highlightRects = (start..end)
-            .map { textMapping[it] }
-            .distinct()
-            .mapNotNull { index ->
-                val p = textPositions.getOrNull(index) ?: return@mapNotNull null
-                RectF(
-                    p.x * scale,
-                    (pageHeight - p.y - p.height) * scale,
-                    (p.x + p.width) * scale,
-                    (pageHeight - p.y) * scale
-                )
+        // Agrupa caracteres próximos da mesma linha em um único retângulo.
+        val rects = mutableListOf<RectF>()
+        val sorted = selectedIndices.sortedWith(
+            compareByDescending<Int> { textPositions[it].y }
+                .thenBy { textPositions[it].x }
+        )
+
+        var current: RectF? = null
+        var currentY = Float.NaN
+
+        for (index in sorted) {
+            val p = textPositions.getOrNull(index) ?: continue
+            val top = (pageHeight - p.y - p.height) * scale
+            val bottom = (pageHeight - p.y) * scale
+            val left = p.x * scale
+            val right = (p.x + p.width) * scale
+
+            if (current == null || abs(top - currentY) > max(3f, p.height * scale * 0.7f)) {
+                current?.let { rects.add(it) }
+                current = RectF(left, top, right, bottom)
+                currentY = top
+            } else {
+                current!!.left = min(current!!.left, left)
+                current!!.right = max(current!!.right, right)
+                current!!.top = min(current!!.top, top)
+                current!!.bottom = max(current!!.bottom, bottom)
             }
+        }
+
+        current?.let { rects.add(it) }
+        highlightRects = rects
     }
 
     private fun normalizeForMatch(value: String): String =
@@ -228,6 +346,7 @@ class PdfPageView(context: Context) : View(context) {
                 0f, 0f, 0f, 1f, 0f
             ))
         }
+
         if (brightness != 0f) {
             val b = brightness * 255f
             val brightnessMatrix = ColorMatrix(floatArrayOf(
@@ -238,33 +357,42 @@ class PdfPageView(context: Context) : View(context) {
             ))
             matrix.postConcat(brightnessMatrix)
         }
+
         return if (filterMode != 0 || brightness != 0f) {
             ColorMatrixColorFilter(matrix)
-        } else {
-            null
-        }
+        } else null
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        bitmap?.let {
+
+        bitmap?.let { image ->
             paint.colorFilter = colorFilter()
-            val scale = minOf(width.toFloat() / it.width, height.toFloat() / it.height)
-            val w = it.width * scale
-            val h = it.height * scale
+
+            val scale = minOf(
+                width.toFloat() / image.width,
+                height.toFloat() / image.height
+            )
+            val w = image.width * scale
+            val h = image.height * scale
             val left = (width - w) / 2f
             val top = (height - h) / 2f
             val destination = RectF(left, top, left + w, top + h)
 
-            canvas.drawBitmap(it, null, destination, paint)
+            canvas.drawBitmap(image, null, destination, paint)
 
             if (highlightRects.isNotEmpty()) {
                 highlightRects.forEach { rect ->
-                    canvas.drawRect(
+                    val mapped = RectF(
                         left + rect.left * scale,
                         top + rect.top * scale,
                         left + rect.right * scale,
-                        top + rect.bottom * scale,
+                        top + rect.bottom * scale
+                    )
+                    canvas.drawRoundRect(
+                        mapped,
+                        5f,
+                        5f,
                         highlightPaint
                     )
                 }
@@ -274,11 +402,14 @@ class PdfPageView(context: Context) : View(context) {
 
     fun closeDocument() {
         renderJob?.cancel()
+        highlightJob?.cancel()
+
         bitmap?.recycle()
         bitmap = null
         renderer = null
         document?.close()
         document = null
+
         highlightRects = emptyList()
         textPositions = emptyList()
         textSource = ""
