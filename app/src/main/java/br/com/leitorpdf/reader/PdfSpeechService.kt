@@ -23,12 +23,14 @@ import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.util.Locale
+import kotlin.coroutines.resume
 
 class PdfSpeechService : Service() {
     companion object {
@@ -78,6 +80,8 @@ class PdfSpeechService : Service() {
             ttsReady = status == TextToSpeech.SUCCESS
             if (ttsReady) {
                 configureTts()
+                installPlaybackListener()
+
                 if (pendingExport) {
                     pendingExport = false
                     exportPage()
@@ -86,62 +90,12 @@ class PdfSpeechService : Service() {
                     beginPlayback()
                 }
             } else {
-                fail("O mecanismo TTS do Android não está disponível.")
+                fail("O mecanismo de voz do Android não está disponível.")
             }
         }
-
-
     }
 
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                val parsed = parseUtterance(utteranceId) ?: return
-                if (paused) return
-                page = parsed.first
-                sentence = parsed.second
-                saveProgress(true)
-                notifyReading()
-            }
-
-            override fun onDone(utteranceId: String?) {
-                val parsed = parseUtterance(utteranceId) ?: return
-                if (paused) return
-
-                val p = parsed.first
-                val s = parsed.second
-                val parts = parts(pages.getOrNull(p - 1).orEmpty())
-
-                if (s + 1 < parts.size) {
-                    return
-                }
-
-                if (p < pages.size) {
-                    page = p + 1
-                    sentence = 0
-                    scope.launch { queueCurrentPage(generation) }
-                } else {
-                    paused = true
-                    prefs.edit()
-                        .putBoolean("playing", false)
-                        .putBoolean("available", false)
-                        .remove("highlight_text")
-                        .apply()
-                    notify(false, "Leitura concluída")
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                }
-            }
-
-            override fun onError(utteranceId: String?) {
-                if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
-            }
-
-            override fun onError(utteranceId: String?, errorCode: Int) {
-                if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
-            }
-        })
-
-$marker
+    override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
         when (i?.action) {
             ACTION_PAUSE -> pause()
             ACTION_STOP -> stopReading()
@@ -153,7 +107,8 @@ $marker
             }
             ACTION_EXPORT_PAGE -> {
                 readExtras(i)
-                paused = false
+                paused = true
+                tts?.stop()
                 foreground()
                 if (ttsReady) exportPage() else pendingExport = true
             }
@@ -162,7 +117,10 @@ $marker
     }
 
     private fun readExtras(i: Intent) {
-        i.getStringArrayListExtra(EXTRA_PAGES)?.takeIf { it.isNotEmpty() }?.let { pages = it }
+        i.getStringArrayListExtra(EXTRA_PAGES)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { pages = it }
+
         uri = i.getStringExtra(EXTRA_URI).orEmpty()
         fileName = i.getStringExtra(EXTRA_FILE_NAME) ?: "PDF"
         rate = i.getFloatExtra(EXTRA_RATE, 1f).coerceIn(.5f, 2f)
@@ -183,6 +141,47 @@ $marker
         engine.setPitch(1f)
     }
 
+    private fun installPlaybackListener() {
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                val parsed = parseUtterance(utteranceId) ?: return
+                if (paused) return
+
+                page = parsed.first
+                sentence = parsed.second
+                saveProgress(true)
+                notifyReading()
+            }
+
+            override fun onDone(utteranceId: String?) {
+                val parsed = parseUtterance(utteranceId) ?: return
+                if (paused) return
+
+                val p = parsed.first
+                val s = parsed.second
+                val currentParts = parts(pages.getOrNull(p - 1).orEmpty())
+
+                if (s + 1 < currentParts.size) return
+
+                if (p < pages.size) {
+                    page = p + 1
+                    sentence = 0
+                    scope.launch { queueCurrentPage(generation) }
+                } else {
+                    finishReading()
+                }
+            }
+
+            override fun onError(utteranceId: String?) {
+                if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
+            }
+        })
+    }
+
     private fun beginPlayback() {
         if (!ttsReady || pages.isEmpty()) {
             fail("Não há texto disponível para narrar.")
@@ -193,8 +192,8 @@ $marker
         paused = false
         requestAudioFocus()
         configureTts()
-
         tts?.stop()
+
         scope.launch { queueCurrentPage(g) }
     }
 
@@ -218,16 +217,17 @@ $marker
 
         withContext(Dispatchers.Main.immediate) {
             if (g != generation || paused) return@withContext
+
             engine.stop()
+
             for (index in start..currentParts.lastIndex) {
-                val spoken = currentParts[index].first
-                val id = utteranceId(page, index)
                 val result = engine.speak(
-                    spoken,
+                    currentParts[index].first,
                     if (index == start) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
                     Bundle(),
-                    id
+                    utteranceId(page, index)
                 )
+
                 if (result == TextToSpeech.ERROR) {
                     fail("Não foi possível iniciar a narração.")
                     return@withContext
@@ -238,6 +238,7 @@ $marker
 
     private fun finishReading() {
         paused = true
+        abandonAudioFocus()
         prefs.edit()
             .putBoolean("playing", false)
             .putBoolean("available", false)
@@ -284,26 +285,29 @@ $marker
             .filter { it.isNotBlank() }
 
         val result = mutableListOf<Pair<String, String>>()
+
         for (original in blocks) {
-            val spoken = normalizeReferences(original)
             if (original.length <= 320) {
-                result += spoken to original
-            } else {
-                var start = 0
-                while (start < original.length) {
-                    var end = minOf(start + 320, original.length)
-                    if (end < original.length) {
-                        val local = original.substring(start, end).lastIndexOf(' ')
-                        if (local > 120) end = start + local
-                    }
-                    val piece = original.substring(start, end).trim()
-                    if (piece.isNotBlank()) {
-                        result += normalizeReferences(piece) to piece
-                    }
-                    start = end
+                result += normalizeReferences(original) to original
+                continue
+            }
+
+            var start = 0
+            while (start < original.length) {
+                var end = minOf(start + 320, original.length)
+                if (end < original.length) {
+                    val localBreak = original.substring(start, end).lastIndexOf(' ')
+                    if (localBreak > 120) end = start + localBreak
                 }
+
+                val piece = original.substring(start, end).trim()
+                if (piece.isNotBlank()) {
+                    result += normalizeReferences(piece) to piece
+                }
+                start = end
             }
         }
+
         return result
     }
 
@@ -317,16 +321,17 @@ $marker
     private fun utteranceId(p: Int, s: Int): String = "pdf:$p:$s"
 
     private fun parseUtterance(id: String?): Pair<Int, Int>? {
-        val value = id ?: return null
-        val parts = value.split(":")
-        if (parts.size != 3 || parts[0] != "pdf") return null
-        return parts[1].toIntOrNull()?.let { p ->
-            parts[2].toIntOrNull()?.let { s -> p to s }
-        }
+        val pieces = id?.split(":") ?: return null
+        if (pieces.size != 3 || pieces[0] != "pdf") return null
+
+        val p = pieces[1].toIntOrNull() ?: return null
+        val s = pieces[2].toIntOrNull() ?: return null
+        return p to s
     }
 
     private fun saveProgress(playing: Boolean) {
         if (uri.isBlank()) return
+
         val original = parts(pages.getOrNull(page - 1).orEmpty())
             .getOrNull(sentence)?.second.orEmpty()
 
@@ -352,15 +357,16 @@ $marker
 
         val targetPage = page.coerceIn(1, pages.size)
         val targetParts = parts(pages[targetPage - 1])
+
         if (targetParts.isEmpty()) {
             finishExport("Esta página não possui texto para narrar.")
             return
         }
 
-        paused = true
         generation++
         tts?.stop()
         val g = generation
+
         scope.launch(Dispatchers.IO) {
             try {
                 val tempDir = File(cacheDir, "tts_export").apply { mkdirs() }
@@ -368,6 +374,7 @@ $marker
 
                 for ((index, pair) in targetParts.withIndex()) {
                     if (g != generation) return@launch
+
                     val temp = File(tempDir, "part_$index.wav")
                     if (temp.exists()) temp.delete()
 
@@ -376,9 +383,10 @@ $marker
                         throw IllegalStateException("Falha ao gerar o áudio do trecho ${index + 1}.")
                     }
 
-                    val safeName = sanitize(fileName.substringBeforeLast('.'))
-                    val display = "${safeName}_pagina_${targetPage}_trecho_${index + 1}.wav"
+                    val base = sanitize(fileName.substringBeforeLast('.'))
+                    val display = "${base}_pagina_${targetPage}_trecho_${index + 1}.wav"
                     saveToDownloads(temp, display)
+
                     done++
                     prefs.edit()
                         .putBoolean("exporting", true)
@@ -392,6 +400,7 @@ $marker
                     .putInt("export_progress", 100)
                     .putString("export_message", "$done arquivos salvos em Downloads/LeitorPDF.")
                     .apply()
+
                 notify(false, "$done arquivos salvos em Downloads/LeitorPDF")
             } catch (e: Throwable) {
                 finishExport(e.message ?: "Não foi possível salvar os arquivos de áudio.")
@@ -403,39 +412,49 @@ $marker
     }
 
     private suspend fun synthesizeToFile(text: String, file: File): Boolean =
-        kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+        suspendCancellableCoroutine { continuation ->
             val engine = tts
+
             if (engine == null) {
-                continuation.resume(false) {}
+                continuation.resume(false)
                 return@suspendCancellableCoroutine
             }
 
             val utterance = "export_${System.nanoTime()}"
+
             val listener = object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
+                override fun onStart(utteranceId: String?) = Unit
+
                 override fun onDone(utteranceId: String?) {
                     if (utteranceId == utterance && continuation.isActive) {
-                        continuation.resume(true) {}
+                        continuation.resume(true)
                     }
                 }
+
                 override fun onError(utteranceId: String?) {
                     if (utteranceId == utterance && continuation.isActive) {
-                        continuation.resume(false) {}
+                        continuation.resume(false)
+                    }
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    if (utteranceId == utterance && continuation.isActive) {
+                        continuation.resume(false)
                     }
                 }
             }
 
             scope.launch(Dispatchers.Main.immediate) {
-                val old = engine
-                old.setOnUtteranceProgressListener(listener)
-                val result = old.synthesizeToFile(
+                engine.setOnUtteranceProgressListener(listener)
+                val result = engine.synthesizeToFile(
                     text,
                     Bundle(),
                     file,
                     utterance
                 )
+
                 if (result == TextToSpeech.ERROR && continuation.isActive) {
-                    continuation.resume(false) {}
+                    continuation.resume(false)
                 }
             }
 
@@ -449,36 +468,51 @@ $marker
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, displayName)
                 put(MediaStore.Downloads.MIME_TYPE, "audio/wav")
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/LeitorPDF")
+                put(
+                    MediaStore.Downloads.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/LeitorPDF"
+                )
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
 
             val resolver = contentResolver
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: error("Não foi possível criar o arquivo em Downloads.")
+            val destination = resolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                values
+            ) ?: error("Não foi possível criar o arquivo em Downloads.")
 
             try {
-                resolver.openOutputStream(uri)?.use { output ->
-                    FileInputStream(source).use { input -> input.copyTo(output) }
+                resolver.openOutputStream(destination)?.use { output ->
+                    FileInputStream(source).use { input ->
+                        input.copyTo(output)
+                    }
                 } ?: error("Não foi possível gravar o arquivo de áudio.")
 
                 values.clear()
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
+                resolver.update(destination, values, null, null)
             } catch (e: Throwable) {
-                resolver.delete(uri, null, null)
+                resolver.delete(destination, null, null)
                 throw e
             }
         } else {
-            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val dir = Environment
+                .getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 .resolve("LeitorPDF")
                 .apply { mkdirs() }
-            source.copyTo(File(dir, displayName), overwrite = true)
+
+            source.copyTo(
+                File(dir, displayName),
+                overwrite = true
+            )
         }
     }
 
     private fun sanitize(value: String): String =
-        value.replace(Regex("[^A-Za-z0-9À-ÿ _-]"), "_").trim().ifBlank { "PDF" }
+        value
+            .replace(Regex("[^A-Za-z0-9À-ÿ _-]"), "_")
+            .trim()
+            .ifBlank { "PDF" }
 
     private fun finishExport(message: String) {
         prefs.edit()
@@ -486,20 +520,24 @@ $marker
             .putInt("export_progress", 0)
             .putString("export_message", message)
             .apply()
+
         notify(false, message)
     }
 
     private fun requestAudioFocus() {
         val manager = getSystemService(AudioManager::class.java) ?: return
+
         if (Build.VERSION.SDK_INT >= 26) {
             val attributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
+
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(attributes)
                 .setWillPauseWhenDucked(false)
                 .build()
+
             audioFocusRequest = request
             audioFocusGranted =
                 manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -514,18 +552,22 @@ $marker
 
     private fun abandonAudioFocus() {
         if (!audioFocusGranted) return
+
         val manager = getSystemService(AudioManager::class.java) ?: return
+
         if (Build.VERSION.SDK_INT >= 26) {
             audioFocusRequest?.let { manager.abandonAudioFocusRequest(it) }
         } else {
             manager.abandonAudioFocus(null)
         }
+
         audioFocusGranted = false
         audioFocusRequest = null
     }
 
     private fun foreground() {
         val notification = build(false, "Leitor PDF")
+
         if (Build.VERSION.SDK_INT >= 29) {
             ServiceCompat.startForeground(
                 this,
@@ -539,7 +581,7 @@ $marker
     }
 
     private fun notifyReading() {
-        notify(true, null)
+        notify(true)
     }
 
     private fun notify(playing: Boolean, message: String? = null) {
@@ -609,10 +651,12 @@ $marker
         generation++
         tts?.stop()
         abandonAudioFocus()
+
         prefs.edit()
             .putBoolean("playing", false)
             .putString("speech_error", message)
             .apply()
+
         notify(false, message)
     }
 
