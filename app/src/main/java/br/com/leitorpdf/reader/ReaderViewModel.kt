@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.speech.tts.TextToSpeech
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,7 +15,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class VoiceOption(val name: String, val label: String)
+data class VoiceOption(
+    val name: String,
+    val label: String
+)
 
 data class ReaderUiState(
     val fileName: String = "",
@@ -32,9 +36,9 @@ data class ReaderUiState(
     val resumeAvailable: Boolean = false,
     val resumePage: Int = 1,
     val highlightText: String = "",
-    val localTtsReady: Boolean = false,
-    val modelDownloading: Boolean = false,
-    val modelProgress: Int = 0,
+    val exportingAudio: Boolean = false,
+    val exportProgress: Int = 0,
+    val exportMessage: String = "",
     val error: String? = null
 )
 
@@ -44,25 +48,40 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val prefs =
         application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
 
+    private val tts = TextToSpeech(app) { status ->
+        if (status == TextToSpeech.SUCCESS) {
+            val voices = AndroidTts.portugueseVoices(tts)
+            val saved = prefs.getString("voice", null)
+            val selected = voices.firstOrNull { it.name == saved }?.name
+                ?: voices.firstOrNull()?.name
+
+            _state.value = _state.value.copy(
+                speechReady = true,
+                voices = voices.map { VoiceOption(it.name, it.label) },
+                selectedVoice = selected,
+                error = if (voices.isEmpty()) {
+                    "Nenhuma voz em português está instalada. Toque em «Gerenciar vozes» para baixar uma."
+                } else null
+            )
+
+            if (selected != null) {
+                prefs.edit().putString("voice", selected).apply()
+            }
+        } else {
+            _state.value = _state.value.copy(
+                speechReady = false,
+                error = "O mecanismo de voz do Android não está disponível."
+            )
+        }
+    }
+
     private val _state = MutableStateFlow(
         ReaderUiState(
-            voices = localVoices(),
-            selectedVoice = savedLocalVoice(),
-            localTtsReady = KokoroLocalTts.isReady(application),
-            speechReady = KokoroLocalTts.isReady(application),
+            selectedVoice = prefs.getString("voice", null),
             speechRate = prefs.getFloat("rate", 1f).coerceIn(.5f, 2f)
         )
     )
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
-
-    private fun savedLocalVoice(): String {
-        val saved = prefs.getString("voice", null)
-        return KokoroLocalTts.voices.firstOrNull { it.id == saved }?.id
-            ?: KokoroLocalTts.VOICE_ALEX
-    }
-
-    private fun localVoices(): List<VoiceOption> =
-        KokoroLocalTts.voices.map { VoiceOption(it.id, it.label) }
 
     fun openPdf(uri: Uri, name: String) {
         val savedUri = prefs.getString("uri", null)
@@ -98,7 +117,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         text = pages.joinToString("\n\n").trim(),
                         isLoading = false,
                         error = if (pages.joinToString("").isBlank())
-                            "Este PDF parece ser escaneado. O OCR será adicionado na próxima etapa."
+                            "Este PDF parece ser escaneado. O OCR será adicionado depois."
                         else null
                     )
                 }
@@ -121,8 +140,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    fun nextPage() = setSelectedPage(_state.value.selectedPage + 1)
+    fun previousPage() = setSelectedPage(_state.value.selectedPage - 1)
+
     fun selectVoice(name: String) {
-        if (KokoroLocalTts.voices.none { it.id == name }) return
+        if (_state.value.voices.none { it.name == name }) return
         _state.value = _state.value.copy(selectedVoice = name)
         prefs.edit().putString("voice", name).apply()
 
@@ -134,57 +156,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun prepareLocalVoice() {
-        if (_state.value.modelDownloading) return
-
-        if (KokoroLocalTts.isReady(app)) {
-            _state.value = _state.value.copy(
-                localTtsReady = true,
-                speechReady = true,
-                modelDownloading = false,
-                modelProgress = 100,
-                error = null
+    fun toggleSpeech() {
+        val c = _state.value
+        if (!c.speechReady) {
+            _state.value = c.copy(
+                error = "A voz do Android ainda não está pronta. Abra «Gerenciar vozes»."
             )
             return
         }
 
-        viewModelScope.launch {
-            _state.value = _state.value.copy(
-                modelDownloading = true,
-                modelProgress = 0,
-                error = null
-            )
-            runCatching {
-                KokoroLocalTts.prepare(app) { progress ->
-                    _state.value = _state.value.copy(modelProgress = progress)
-                }
-            }.onSuccess {
-                _state.value = _state.value.copy(
-                    localTtsReady = true,
-                    speechReady = true,
-                    modelDownloading = false,
-                    modelProgress = 100,
-                    error = null
-                )
-            }.onFailure { e ->
-                _state.value = _state.value.copy(
-                    localTtsReady = false,
-                    speechReady = false,
-                    modelDownloading = false,
-                    error = e.message ?: "Não foi possível instalar a voz offline."
-                )
-            }
-        }
-    }
-
-    fun toggleSpeech() {
-        val c = _state.value
         if (c.isSpeaking) {
             pauseSpeech()
             return
         }
 
-        // Se a página foi alterada manualmente, iniciar exatamente nela.
         val savedPage = prefs.getInt("page", c.selectedPage)
         val sameDocument = prefs.getString("uri", null) == c.uri
         if (sameDocument && c.selectedPage == savedPage && c.resumeAvailable) {
@@ -218,7 +203,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val c = _state.value
         if (c.pageTexts.isEmpty()) return
 
-        val voice = c.selectedVoice ?: KokoroLocalTts.VOICE_ALEX
+        val voice = c.selectedVoice ?: c.voices.firstOrNull()?.name
         val i = Intent(app, PdfSpeechService::class.java).apply {
             action = PdfSpeechService.ACTION_PLAY
             putStringArrayListExtra(
@@ -246,30 +231,64 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    fun exportCurrentPageAudio() {
+        val c = _state.value
+        if (!c.speechReady || c.pageTexts.isEmpty() || c.exportingAudio) return
+
+        val i = Intent(app, PdfSpeechService::class.java).apply {
+            action = PdfSpeechService.ACTION_EXPORT_PAGE
+            putStringArrayListExtra(PdfSpeechService.EXTRA_PAGES, ArrayList(c.pageTexts))
+            putExtra(PdfSpeechService.EXTRA_URI, c.uri)
+            putExtra(PdfSpeechService.EXTRA_FILE_NAME, c.fileName)
+            putExtra(PdfSpeechService.EXTRA_RATE, c.speechRate)
+            putExtra(PdfSpeechService.EXTRA_VOICE, c.selectedVoice)
+            putExtra(PdfSpeechService.EXTRA_PAGE, c.selectedPage)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(app, i)
+        } else {
+            app.startService(i)
+        }
+
+        _state.value = c.copy(
+            exportingAudio = true,
+            exportProgress = 0,
+            exportMessage = "Preparando os arquivos de áudio…"
+        )
+    }
+
     fun syncPlayback() {
         val c = _state.value
-        if (prefs.getString("uri", null) != c.uri) return
+        if (c.uri.isBlank()) return
 
         val playing = prefs.getBoolean("playing", false)
-        val page = prefs.getInt(
-            "current_page",
-            c.selectedPage
-        ).coerceIn(1, c.pageCount.coerceAtLeast(1))
+        val page = prefs.getInt("current_page", c.selectedPage)
+            .coerceIn(1, c.pageCount.coerceAtLeast(1))
         val h = prefs.getString("highlight_text", "").orEmpty()
         val nh = if (playing) h else c.highlightText
         val speechError = prefs.getString("speech_error", null)
+        val exporting = prefs.getBoolean("exporting", false)
+        val progress = prefs.getInt("export_progress", 0)
+        val message = prefs.getString("export_message", "").orEmpty()
 
         if (
             c.isSpeaking != playing ||
             c.selectedPage != page ||
             c.highlightText != nh ||
-            c.error != speechError
+            c.error != speechError ||
+            c.exportingAudio != exporting ||
+            c.exportProgress != progress ||
+            c.exportMessage != message
         ) {
             _state.value = c.copy(
                 isSpeaking = playing,
                 selectedPage = page,
                 highlightText = nh,
                 resumeAvailable = prefs.getBoolean("available", c.resumeAvailable),
+                exportingAudio = exporting,
+                exportProgress = progress,
+                exportMessage = message,
                 error = speechError
             )
         }
@@ -298,6 +317,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
+        runCatching { tts.stop() }
+        runCatching { tts.shutdown() }
         super.onCleared()
     }
 }
