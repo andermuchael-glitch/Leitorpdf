@@ -1,7 +1,8 @@
 package br.com.leitorpdf.reader
 
 import android.app.Application
-import android.content.Context\nimport android.content.Intent
+import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
