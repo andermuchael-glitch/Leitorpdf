@@ -110,8 +110,12 @@ class ReaderViewModel(application:Application):AndroidViewModel(application),Tex
     fun syncPlayback(){
         val c=_state.value;if(prefs.getString("uri",null)!=c.uri)return
         val playing=prefs.getBoolean("playing",false);val page=prefs.getInt("current_page",c.selectedPage).coerceIn(1,c.pageCount.coerceAtLeast(1))
-        val h=prefs.getString("highlight_text","").orEmpty();val nh=if(playing)h else c.highlightText
-        if(c.isSpeaking!=playing||c.selectedPage!=page||c.highlightText!=nh)_state.value=c.copy(isSpeaking=playing,selectedPage=page,highlightText=nh,resumeAvailable=prefs.getBoolean("available",c.resumeAvailable))
+        val h=prefs.getString("highlight_text","").orEmpty()
+        val nh=if(playing)h else c.highlightText
+        val speechError=prefs.getString("speech_error",null)
+        if(c.isSpeaking!=playing||c.selectedPage!=page||c.highlightText!=nh||c.error!=speechError)
+            _state.value=c.copy(isSpeaking=playing,selectedPage=page,highlightText=nh,
+                resumeAvailable=prefs.getBoolean("available",c.resumeAvailable),error=speechError)
     }
 
     fun pauseSpeech(){app.startService(Intent(app,PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_PAUSE));_state.value=_state.value.copy(isSpeaking=false)}
@@ -147,14 +151,20 @@ class ReaderViewModel(application:Application):AndroidViewModel(application),Tex
     }
 
     private fun cloudVoices()=listOf(
-        VoiceOption("pt-BR-Chirp3-HD-Rasalgethi","Narrador profissional • informativa"),
-        VoiceOption("pt-BR-Chirp3-HD-Sadaltager","Narrador profissional • segura"),
-        VoiceOption("pt-BR-Chirp3-HD-Charon","Narrador • informativa"),
-        VoiceOption("pt-BR-Chirp3-HD-Orus","Narrador • firme"),
-        VoiceOption("pt-BR-Chirp3-HD-Schedar","Narrador • equilibrada"),
-        VoiceOption("pt-BR-Chirp3-HD-Fenrir","Narrador • enérgica"),
-        VoiceOption("pt-BR-Chirp3-HD-Achird","Narrador • natural"),
-        VoiceOption("pt-BR-Chirp3-HD-Zubenelgenubi","Narrador • casual")
+        VoiceOption("pt-BR-Chirp3-HD-Charon","Masculina • grave e documental"),
+        VoiceOption("pt-BR-Chirp3-HD-Enceladus","Masculina • quente e natural"),
+        VoiceOption("pt-BR-Chirp3-HD-Iapetus","Masculina • firme e clara"),
+        VoiceOption("pt-BR-Chirp3-HD-Orus","Masculina • suave e profissional"),
+        VoiceOption("pt-BR-Chirp3-HD-Rasalgethi","Masculina • encorpada e narrativa"),
+        VoiceOption("pt-BR-Chirp3-HD-Sadachbia","Masculina • expressiva e natural"),
+        VoiceOption("pt-BR-Chirp3-HD-Sadaltager","Masculina • segura e elegante"),
+        VoiceOption("pt-BR-Chirp3-HD-Schedar","Masculina • equilibrada e didática"),
+        VoiceOption("pt-BR-Chirp3-HD-Fenrir","Masculina • energética e marcante"),
+        VoiceOption("pt-BR-Chirp3-HD-Achird","Masculina • conversacional e natural"),
+        VoiceOption("pt-BR-Chirp3-HD-Zubenelgenubi","Masculina • casual e descontraída"),
+        VoiceOption("pt-BR-Chirp3-HD-Achernar","Feminina • clara e profissional"),
+        VoiceOption("pt-BR-Chirp3-HD-Gacrux","Feminina • natural e acolhedora"),
+        VoiceOption("pt-BR-Chirp3-HD-Kore","Feminina • firme e elegante")
     )
 
     private fun systemVoices():List<VoiceOption> = tts.voices.orEmpty().filter{it.locale.language=="pt"}.distinctBy{it.name}
