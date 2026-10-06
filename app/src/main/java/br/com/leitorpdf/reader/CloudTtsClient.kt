@@ -15,6 +15,7 @@ class CloudTtsClient(private val context: Context) {
         private const val ENDPOINT_KEY = "cloud_tts_endpoint"
         private const val CONNECT_TIMEOUT_MS = 12_000
         private const val READ_TIMEOUT_MS = 30_000
+        private const val DEFAULT_ENDPOINT = "https://leitorpdf-cgawvbhbm-andermuchael-5187.vercel.app/api/tts"
     }
 
     fun endpoint(): String {
@@ -23,8 +24,9 @@ class CloudTtsClient(private val context: Context) {
             ?.trim()
             .orEmpty()
 
-        return saved.ifBlank { br.com.leitorpdf.BuildConfig.TTS_ENDPOINT.trim() }
-            .trimEnd('/')
+        return saved.ifBlank {
+            br.com.leitorpdf.BuildConfig.TTS_ENDPOINT.trim().ifBlank { DEFAULT_ENDPOINT }
+        }.trimEnd('/')
     }
 
     fun saveEndpoint(value: String) {
