@@ -95,9 +95,14 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(state.selectedPage, state.highlightText) {
+    LaunchedEffect(state.selectedPage) {
         if (pageCount > 0) {
             pdfView.goToPage(state.selectedPage - 1, scope)
+        }
+    }
+
+    LaunchedEffect(state.highlightText) {
+        if (pageCount > 0) {
             pdfView.setHighlightText(state.highlightText, scope)
         }
     }
