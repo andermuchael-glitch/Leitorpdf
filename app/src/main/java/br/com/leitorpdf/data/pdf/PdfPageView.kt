@@ -171,7 +171,7 @@ class PdfPageView(context: Context) : View(context) {
     }
 
     private fun normalizeForMatch(value: String): String =
-        value.lowercase().replace(Regex("[^\p{L}\p{Nd}]+"), "")
+        value.lowercase().replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
 
     private fun colorFilter(): ColorMatrixColorFilter? {
         val matrix = ColorMatrix()
