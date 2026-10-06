@@ -47,7 +47,7 @@ class ReaderViewModel(application:Application):AndroidViewModel(application),Tex
     private val prefs=application.getSharedPreferences("reading_progress",Context.MODE_PRIVATE)
     private val cloud=CloudTtsClient(application)
     private val _state=MutableStateFlow(ReaderUiState())
-    val state:StateFlow<ReaderUiState>=_state.asStateFlow()
+    val state:StateFlow<ReaderUiState> = _state.asStateFlow()
     private val tts=TextToSpeech(application,this)
     private var ttsReady=false
 
