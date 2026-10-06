@@ -60,6 +60,12 @@ class PdfPageView(context: Context) : View(context) {
         }
     }
 
+    fun goToPage(page: Int, scope: CoroutineScope) {
+        if (pageCount <= 0) return
+        currentPage = page.coerceIn(0, pageCount - 1)
+        renderCurrent(scope)
+    }
+
     fun previousPage(scope: CoroutineScope) {
         if (currentPage > 0) {
             currentPage--
