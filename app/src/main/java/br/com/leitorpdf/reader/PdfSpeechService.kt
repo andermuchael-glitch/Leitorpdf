@@ -276,7 +276,9 @@ class PdfSpeechService : Service() {
         page = n.first
         sentence = n.second
         save(true)
-        localSegment(generation, voice)
+        scope.launch(Dispatchers.Main.immediate) {
+            localSegment(generation, voice)
+        }
     }
 
     private fun normalize(): Pair<Int, Int>? {
