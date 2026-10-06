@@ -38,6 +38,7 @@ data class ReaderUiState(
     val selectedVoice: String? = null,
     val resumeAvailable: Boolean = false,
     val resumePage: Int = 1,
+    val highlightText: String = "",
     val error: String? = null
 )
 
@@ -74,7 +75,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
             isLoading = true,
             error = null,
             resumeAvailable = sameDocument && savedAvailable,
-            resumePage = savedPage
+            resumePage = savedPage,
+            highlightText = if (sameDocument) prefs.getString("highlight_text", "").orEmpty() else ""
         )
 
         viewModelScope.launch {
@@ -105,7 +107,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
     fun setSelectedPage(page: Int) {
         val count = _state.value.pageCount
         if (count <= 0) return
-        _state.value = _state.value.copy(selectedPage = page.coerceIn(1, count))
+        _state.value = _state.value.copy(selectedPage = page.coerceIn(1, count), highlightText = if (_state.value.isSpeaking) _state.value.highlightText else "")
     }
 
     fun availableVoices(): List<VoiceOption> = _state.value.voices
@@ -113,6 +115,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
     fun selectVoice(name: String?) {
         _state.value = _state.value.copy(selectedVoice = name)
         prefs.edit().putString("voice", name).apply()
+        if (_state.value.isSpeaking) {
+            val page = prefs.getInt("current_page", _state.value.selectedPage)
+            val sentence = prefs.getInt("current_sentence", 0)
+            startService(page, sentence)
+        }
     }
 
     fun toggleSpeech() {
@@ -131,7 +138,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         setSelectedPage(safePage)
 
         val text = current.pageTexts.drop(safePage - 1).joinToString("\n\n").trim()
-        startService(text, safePage, 0)
+        startService(safePage, 0)
     }
 
     fun continueReading() {
@@ -147,19 +154,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         val chunk = prefs.getInt("chunk", 0).coerceAtLeast(0)
         val text = current.pageTexts.drop(page - 1).joinToString("\n\n").trim()
         setSelectedPage(page)
-        startService(text, page, chunk)
+        startService(page, chunk)
     }
 
-    private fun startService(text: String, page: Int, chunk: Int) {
-        if (text.isBlank()) return
+    private fun startService(page: Int, chunk: Int) {
+        val current = _state.value
+        if (current.pageTexts.isEmpty()) return
 
         val intent = Intent(app, PdfSpeechService::class.java).apply {
             action = PdfSpeechService.ACTION_PLAY
-            putExtra(PdfSpeechService.EXTRA_TEXT, text)
-            putExtra(PdfSpeechService.EXTRA_URI, _state.value.uri)
-            putExtra(PdfSpeechService.EXTRA_FILE_NAME, _state.value.fileName)
-            putExtra(PdfSpeechService.EXTRA_RATE, _state.value.speechRate)
-            putExtra(PdfSpeechService.EXTRA_VOICE, _state.value.selectedVoice)
+            putStringArrayListExtra(PdfSpeechService.EXTRA_PAGES, ArrayList(current.pageTexts))
+            putExtra(PdfSpeechService.EXTRA_URI, current.uri)
+            putExtra(PdfSpeechService.EXTRA_FILE_NAME, current.fileName)
+            putExtra(PdfSpeechService.EXTRA_RATE, current.speechRate)
+            putExtra(PdfSpeechService.EXTRA_VOICE, current.selectedVoice)
             putExtra(PdfSpeechService.EXTRA_PAGE, page)
             putExtra(PdfSpeechService.EXTRA_CHUNK, chunk)
         }
@@ -173,6 +181,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         _state.value = _state.value.copy(isSpeaking = true, error = null)
     }
 
+    fun syncPlayback() {
+        if (prefs.getString("uri", null) != _state.value.uri) return
+        val playing = prefs.getBoolean("playing", false)
+        val page = prefs.getInt("current_page", _state.value.selectedPage)
+            .coerceIn(1, _state.value.pageCount.coerceAtLeast(1))
+        val highlight = prefs.getString("highlight_text", "").orEmpty()
+        _state.value = _state.value.copy(
+            isSpeaking = playing,
+            selectedPage = page,
+            highlightText = if (playing) highlight else _state.value.highlightText
+        )
+    }
+
     fun pauseSpeech() {
         val intent = Intent(app, PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_PAUSE)
         app.startService(intent)
@@ -182,7 +203,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
     fun stopSpeech() {
         val intent = Intent(app, PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_STOP)
         app.startService(intent)
-        _state.value = _state.value.copy(isSpeaking = false)
+        _state.value = _state.value.copy(isSpeaking = false, highlightText = "")
     }
 
     fun setSpeechRate(rate: Float) {
