@@ -1,6 +1,5 @@
 package br.com.leitorpdf.reader
 
-import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import java.util.Locale
@@ -46,9 +45,4 @@ object AndroidTts {
                 .firstOrNull()
     }
 
-    fun openSettings(context: Context) {
-        val intent = android.content.Intent(android.provider.Settings.ACTION_TTS_SETTINGS)
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-    }
 }
