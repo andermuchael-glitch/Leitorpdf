@@ -11,8 +11,8 @@ import kotlinx.coroutines.withContext
 class PdfTextExtractor(private val context: Context) {
     suspend fun extract(uri: Uri): String = withContext(Dispatchers.IO) {
         PDFBoxResourceLoader.init(context.applicationContext)
-        context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
-            PDDocument.load(fd.fileDescriptor).use { document ->
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            PDDocument.load(input).use { document ->
                 PDFTextStripper().getText(document).trim()
             }
         } ?: error("Não foi possível abrir o PDF.")
