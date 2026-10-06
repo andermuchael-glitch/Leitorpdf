@@ -251,7 +251,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         val language = voice.locale.displayLanguage.replaceFirstChar { it.uppercase() }
         val country = voice.locale.displayCountry
         val quality = if (voice.quality >= Voice.QUALITY_HIGH) "Alta qualidade" else "Padrão"
-        return if (country.isBlank()) "$language • $quality" else "$language ($country) • $quality"
+        val shortName = voice.name
+            .substringAfterLast(":", voice.name)
+            .replace("_", " ")
+            .takeLast(28)
+        val connection = if (voice.isNetworkConnectionRequired) " • online" else " • instalada"
+        val localeLabel = if (country.isBlank()) "$language • $quality" else "$language ($country) • $quality"
+        return "$localeLabel • $shortName$connection"
     }
 
     override fun onCleared() {
