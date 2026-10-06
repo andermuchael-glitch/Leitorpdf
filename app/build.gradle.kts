@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val ttsEndpoint = (project.findProperty("TTS_ENDPOINT") as String?) ?: ""
+
 android {
     namespace = "br.com.leitorpdf"
     compileSdk = 37
@@ -23,7 +25,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "TTS_ENDPOINT", ""${project.findProperty("TTS_ENDPOINT") ?: ""}"")
+            buildConfigField("String", "TTS_ENDPOINT", ""$ttsEndpoint"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
