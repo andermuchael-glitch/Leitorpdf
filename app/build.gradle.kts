@@ -3,8 +3,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val ttsEndpoint = (project.findProperty("TTS_ENDPOINT") as String?) ?: ""
-
 android {
     namespace = "br.com.leitorpdf"
     compileSdk = 37
@@ -13,8 +11,8 @@ android {
         applicationId = "br.com.leitorpdf"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.2.0"
+        versionCode = 2
+        versionName = "0.3.0"
     }
 
     buildFeatures {
@@ -25,14 +23,14 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "TTS_ENDPOINT", "\"$ttsEndpoint\"")
+            buildConfigField("String", "TTS_ENDPOINT", """")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            buildConfigField("String", "TTS_ENDPOINT", "\"$ttsEndpoint\"")
+            buildConfigField("String", "TTS_ENDPOINT", """")
         }
     }
 
@@ -40,6 +38,10 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+
+    ndk {
+        abiFilters += listOf("arm64-v8a", "armeabi-v7a")
     }
 }
 
@@ -53,6 +55,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // TTS neural local/offline: sem Google Cloud e sem API.
+    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
