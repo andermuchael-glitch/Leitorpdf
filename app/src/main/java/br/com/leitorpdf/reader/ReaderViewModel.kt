@@ -1,10 +1,13 @@
 package br.com.leitorpdf.reader
 
 import android.app.Application
+import android.content.Intent
 import android.media.AudioAttributes
 import android.net.Uri
+import android.os.Build
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import br.com.leitorpdf.data.pdf.PdfTextExtractor
@@ -14,18 +17,34 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+data class VoiceOption(
+    val name: String,
+    val label: String
+)
+
 data class ReaderUiState(
     val fileName: String = "",
+    val uri: String = "",
     val text: String = "",
+    val pageTexts: List<String> = emptyList(),
+    val pageCount: Int = 0,
+    val selectedPage: Int = 1,
     val isLoading: Boolean = false,
     val isSpeaking: Boolean = false,
     val speechReady: Boolean = false,
     val speechRate: Float = 1f,
+    val voices: List<VoiceOption> = emptyList(),
+    val selectedVoice: String? = null,
+    val resumeAvailable: Boolean = false,
+    val resumePage: Int = 1,
     val error: String? = null
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
     private val extractor = PdfTextExtractor(application)
+    private val app = application
+    private val prefs = application.getSharedPreferences("reading_progress", Application.MODE_PRIVATE)
+
     private val _state = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
 
@@ -39,46 +58,37 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         )
-
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                _state.value = _state.value.copy(isSpeaking = true)
-            }
-
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId?.startsWith("pdf-reader-") == true) {
-                    _state.value = _state.value.copy(isSpeaking = false)
-                }
-            }
-
-            @Suppress("DEPRECATION")
-            override fun onError(utteranceId: String?) {
-                _state.value = _state.value.copy(
-                    isSpeaking = false,
-                    error = "Não foi possível reproduzir o áudio. Verifique o volume de mídia e o mecanismo de voz do Android."
-                )
-            }
-        })
     }
 
     fun openPdf(uri: Uri, name: String) {
+        val savedUri = prefs.getString("uri", null)
+        val sameDocument = savedUri == uri.toString()
+        val savedPage = prefs.getInt("page", 1).coerceAtLeast(1)
+        val savedChunk = prefs.getInt("chunk", 0)
+
         _state.value = _state.value.copy(
             fileName = name,
+            uri = uri.toString(),
             isLoading = true,
-            error = null
+            error = null,
+            resumeAvailable = sameDocument && savedChunk > 0,
+            resumePage = savedPage
         )
 
         viewModelScope.launch {
-            runCatching { extractor.extract(uri) }
-                .onSuccess { text ->
+            runCatching { extractor.extractPages(uri) }
+                .onSuccess { pages ->
+                    val total = pages.size.coerceAtLeast(1)
+                    val startPage = if (sameDocument) savedPage.coerceIn(1, total) else 1
                     _state.value = _state.value.copy(
-                        text = text,
+                        pageTexts = pages,
+                        pageCount = pages.size,
+                        selectedPage = startPage,
+                        text = pages.joinToString("\n\n").trim(),
                         isLoading = false,
-                        error = if (text.isBlank()) {
+                        error = if (pages.joinToString("").isBlank()) {
                             "Este PDF parece ser escaneado. O OCR será adicionado na próxima etapa."
-                        } else {
-                            null
-                        }
+                        } else null
                     )
                 }
                 .onFailure {
@@ -90,114 +100,134 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         }
     }
 
-    fun toggleSpeech() {
-        val current = _state.value
-
-        if (current.isSpeaking) {
-            stopSpeech()
-            return
-        }
-
-        if (current.text.isBlank()) return
-
-        if (!ttsReady) {
-            _state.value = current.copy(
-                error = "O mecanismo de voz ainda está iniciando. Tente novamente em alguns segundos."
-            )
-            return
-        }
-
-        val languageResult = tts.setLanguage(Locale("pt", "BR"))
-        if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
-            languageResult == TextToSpeech.LANG_NOT_SUPPORTED
-        ) {
-            _state.value = current.copy(
-                error = "A voz em português não está instalada. Instale uma voz em português nas configurações de Texto para fala do Android."
-            )
-            return
-        }
-
-        tts.stop()
-        tts.setSpeechRate(current.speechRate)
-
-        val chunks = splitText(current.text)
-        chunks.forEachIndexed { index, chunk ->
-            val queueMode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            tts.speak(
-                chunk,
-                queueMode,
-                null,
-                "pdf-reader-$index"
-            )
-        }
-
-        _state.value = current.copy(isSpeaking = true, error = null)
+    fun setSelectedPage(page: Int) {
+        val count = _state.value.pageCount
+        if (count <= 0) return
+        _state.value = _state.value.copy(selectedPage = page.coerceIn(1, count))
     }
 
-    private fun splitText(text: String): List<String> {
-        val normalized = text
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-            .trim()
+    fun availableVoices(): List<VoiceOption> = _state.value.voices
 
-        if (normalized.length <= 3000) return listOf(normalized)
+    fun selectVoice(name: String?) {
+        _state.value = _state.value.copy(selectedVoice = name)
+        prefs.edit().putString("voice", name).apply()
+    }
 
-        val result = mutableListOf<String>()
-        var remaining = normalized
+    fun toggleSpeech() {
+        val current = _state.value
+        if (current.isSpeaking) {
+            pauseSpeech()
+        } else {
+            startReadingFromPage(current.selectedPage)
+        }
+    }
 
-        while (remaining.length > 3000) {
-            var cut = remaining.lastIndexOf("\n", 3000)
-            if (cut < 1500) cut = remaining.lastIndexOf(". ", 3000)
-            if (cut < 1500) cut = 3000
+    fun startReadingFromPage(page: Int) {
+        val current = _state.value
+        if (current.pageTexts.isEmpty()) return
+        val safePage = page.coerceIn(1, current.pageTexts.size)
+        setSelectedPage(safePage)
 
-            result += remaining.substring(0, cut + if (remaining[cut] == '\n') 0 else 1).trim()
-            remaining = remaining.substring(cut + if (remaining[cut] == '\n') 1 else 0).trim()
+        val text = current.pageTexts.drop(safePage - 1).joinToString("\n\n").trim()
+        startService(text, safePage, 0)
+    }
+
+    fun continueReading() {
+        val current = _state.value
+        if (current.pageTexts.isEmpty()) return
+        val savedUri = prefs.getString("uri", null)
+        if (savedUri != current.uri) {
+            startReadingFromPage(current.selectedPage)
+            return
         }
 
-        if (remaining.isNotEmpty()) result += remaining
-        return result
+        val page = prefs.getInt("page", current.selectedPage).coerceIn(1, current.pageTexts.size)
+        val chunk = prefs.getInt("chunk", 0).coerceAtLeast(0)
+        val text = current.pageTexts.drop(page - 1).joinToString("\n\n").trim()
+        setSelectedPage(page)
+        startService(text, page, chunk)
+    }
+
+    private fun startService(text: String, page: Int, chunk: Int) {
+        if (text.isBlank()) return
+
+        val intent = Intent(app, PdfSpeechService::class.java).apply {
+            action = PdfSpeechService.ACTION_PLAY
+            putExtra(PdfSpeechService.EXTRA_TEXT, text)
+            putExtra(PdfSpeechService.EXTRA_URI, _state.value.uri)
+            putExtra(PdfSpeechService.EXTRA_FILE_NAME, _state.value.fileName)
+            putExtra(PdfSpeechService.EXTRA_RATE, _state.value.speechRate)
+            putExtra(PdfSpeechService.EXTRA_VOICE, _state.value.selectedVoice)
+            putExtra(PdfSpeechService.EXTRA_PAGE, page)
+            putExtra(PdfSpeechService.EXTRA_CHUNK, chunk)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(app, intent)
+        } else {
+            app.startService(intent)
+        }
+
+        _state.value = _state.value.copy(isSpeaking = true, error = null)
+    }
+
+    fun pauseSpeech() {
+        val intent = Intent(app, PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_PAUSE)
+        app.startService(intent)
+        _state.value = _state.value.copy(isSpeaking = false)
+    }
+
+    fun stopSpeech() {
+        val intent = Intent(app, PdfSpeechService::class.java).setAction(PdfSpeechService.ACTION_STOP)
+        app.startService(intent)
+        _state.value = _state.value.copy(isSpeaking = false)
     }
 
     fun setSpeechRate(rate: Float) {
         val safe = rate.coerceIn(0.5f, 2f)
         _state.value = _state.value.copy(speechRate = safe)
+        prefs.edit().putFloat("rate", safe).apply()
         if (ttsReady) tts.setSpeechRate(safe)
     }
 
-    fun stopSpeech() {
-        tts.stop()
-        _state.value = _state.value.copy(isSpeaking = false)
-    }
-
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts.setLanguage(Locale("pt", "BR"))
-            ttsReady = result != TextToSpeech.LANG_MISSING_DATA &&
-                    result != TextToSpeech.LANG_NOT_SUPPORTED
-
-            _state.value = _state.value.copy(
-                speechReady = ttsReady,
-                error = if (!ttsReady) {
-                    "A voz em português não está disponível no aparelho."
-                } else {
-                    null
-                }
-            )
-
-            if (ttsReady) {
-                tts.setSpeechRate(_state.value.speechRate)
-            }
-        } else {
+        if (status != TextToSpeech.SUCCESS) {
             ttsReady = false
             _state.value = _state.value.copy(
                 speechReady = false,
                 error = "Não foi possível iniciar o mecanismo de voz do Android."
             )
+            return
         }
+
+        ttsReady = true
+        val savedVoice = prefs.getString("voice", null)
+        val savedRate = prefs.getFloat("rate", 1f).coerceIn(0.5f, 2f)
+
+        val options = tts.voices.orEmpty()
+            .filter { it.locale.language == "pt" }
+            .distinctBy { it.name }
+            .sortedWith(compareBy<Voice>({ !it.locale.toLanguageTag().startsWith("pt-BR") }, { it.name }))
+            .map { VoiceOption(it.name, voiceLabel(it)) }
+
+        _state.value = _state.value.copy(
+            speechReady = true,
+            voices = options,
+            selectedVoice = savedVoice?.takeIf { name -> options.any { it.name == name } },
+            speechRate = savedRate,
+            error = null
+        )
+        tts.setSpeechRate(savedRate)
+    }
+
+    private fun voiceLabel(voice: Voice): String {
+        val language = voice.locale.displayLanguage.replaceFirstChar { it.uppercase() }
+        val country = voice.locale.displayCountry
+        val quality = if (voice.quality >= Voice.QUALITY_HIGH) "Alta qualidade" else "Padrão"
+        return if (country.isBlank()) "$language • $quality" else "$language ($country) • $quality"
     }
 
     override fun onCleared() {
-        tts.stop()
         tts.shutdown()
         super.onCleared()
     }
