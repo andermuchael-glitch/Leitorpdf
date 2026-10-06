@@ -274,7 +274,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             ready = true
-            if (parts.isNotEmpty() && !paused) speakCurrent()
+            if (pages.isNotEmpty() && !paused) speakCurrent()
         }
     }
 
