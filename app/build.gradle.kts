@@ -25,14 +25,14 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "TTS_ENDPOINT", ""$ttsEndpoint"")
+            buildConfigField("String", "TTS_ENDPOINT", "\"$ttsEndpoint\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            buildConfigField("String", "TTS_ENDPOINT", ""${project.findProperty("TTS_ENDPOINT") ?: ""}"")
+            buildConfigField("String", "TTS_ENDPOINT", "\"$ttsEndpoint\"")
         }
     }
 
