@@ -70,7 +70,8 @@ fun ReaderScreen(
     uri: Uri,
     fileName: String,
     viewModel: ReaderViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenAnotherPdf: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -83,6 +84,7 @@ fun ReaderScreen(
     var pageInput by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf(0) }
     var brightness by remember { mutableStateOf(0f) }
+    var highlightEnabled by remember { mutableStateOf(true) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(uri) {
@@ -110,7 +112,7 @@ fun ReaderScreen(
     LaunchedEffect(state.isSpeaking) {
         while (state.isSpeaking) {
             viewModel.syncPlayback()
-            kotlinx.coroutines.delay(800)
+            kotlinx.coroutines.delay(150)
         }
     }
 
@@ -202,6 +204,28 @@ fun ReaderScreen(
                         OutlinedButton(onClick = { filterMode = 2; pdfView.setFilterMode(2) }, modifier = Modifier.weight(1f)) { Text("Cinza") }
                         OutlinedButton(onClick = { filterMode = 3; pdfView.setFilterMode(3) }, modifier = Modifier.weight(1f)) { Text("Invertido") }
                     }
+                    Text("Marca-texto sincronizado", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (highlightEnabled) "Ativado" else "Desativado",
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                highlightEnabled = !highlightEnabled
+                                pdfView.setHighlightEnabled(highlightEnabled)
+                                if (highlightEnabled) {
+                                    pdfView.setHighlightText(state.highlightText, scope)
+                                }
+                            }
+                        ) {
+                            Text(if (highlightEnabled) "Desligar" else "Ligar")
+                        }
+                    }
+
                     Text("Luminosidade", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Brightness6, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -249,6 +273,14 @@ fun ReaderScreen(
                             onDismissRequest = { menuExpanded = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Abrir outro PDF") },
+                                leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onOpenAnotherPdf()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Escolher página") },
                                 leadingIcon = { Icon(Icons.Default.FormatListNumbered, null) },
                                 onClick = {
@@ -266,7 +298,7 @@ fun ReaderScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Cor e luminosidade") },
+                                text = { Text("Aparência e marca-texto") },
                                 leadingIcon = { Icon(Icons.Default.Brightness6, null) },
                                 onClick = {
                                     showAppearanceDialog = true
