@@ -12,21 +12,26 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "TTS_ENDPOINT", ""${project.findProperty("TTS_ENDPOINT") ?: ""}"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
-    }
-
-    buildFeatures {
-        compose = true
+        debug {
+            buildConfigField("String", "TTS_ENDPOINT", ""${project.findProperty("TTS_ENDPOINT") ?: ""}"")
+        }
     }
 
     packaging {
