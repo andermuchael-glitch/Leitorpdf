@@ -57,7 +57,7 @@ private fun LeitorPdfApp(
 ) {
     val prefs = activity.getSharedPreferences(
         "reading_progress",
-        ComponentActivity.MODE_PRIVATE
+        android.content.Context.MODE_PRIVATE
     )
 
     // Se o usuário já abriu um PDF anteriormente, ele volta direto para o
