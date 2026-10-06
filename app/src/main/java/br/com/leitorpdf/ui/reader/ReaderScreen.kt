@@ -175,15 +175,8 @@ fun ReaderScreen(
                                 }
                             }
                         }
-                        TextButton(
-                            onClick = {
-                                viewModel.selectVoice(null)
-                                showVoiceDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Usar voz do aparelho") }
                     } else {
-                        Text("O aplicativo já está preparado para Chirp 3 HD. Basta informar o endereço do servidor TTS.")
+                        Text("As vozes abaixo são neurais profissionais. Elas não usam o TTS tradicional do aparelho.")
                     }
                     OutlinedButton(
                         onClick = {
