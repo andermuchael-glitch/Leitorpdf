@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.IBinder
@@ -54,6 +55,7 @@ class PdfSpeechService : Service() {
     private var paused = false
     private var player: MediaPlayer? = null
     private var generation = 0L
+    private var audioFocusGranted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -144,8 +146,8 @@ class PdfSpeechService : Service() {
                 }
 
                 if (g != generation || paused) return@launch
-                if (file == null || !file.isFile) {
-                    fail("Não foi possível gerar o áudio neural.")
+                if (file == null || !file.isFile || file.length() <= 44L) {
+                    fail("O áudio neural foi gerado vazio ou inválido.")
                     return@launch
                 }
 
@@ -169,6 +171,8 @@ class PdfSpeechService : Service() {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         )
+        m.setVolume(1.0f, 1.0f)
+        requestAudioFocus()
 
         try {
             m.setDataSource(file.absolutePath)
@@ -351,6 +355,26 @@ class PdfSpeechService : Service() {
             runCatching { it.release() }
         }
         player = null
+        abandonAudioFocus()
+    }
+
+    private fun requestAudioFocus() {
+        val manager = getSystemService(AudioManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= 26) {
+            val request = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .build()
+            audioFocusGranted = manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            audioFocusGranted = manager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        if (!audioFocusGranted) return
+        val manager = getSystemService(AudioManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT < 26) manager.abandonAudioFocus(null)
+        audioFocusGranted = false
     }
 
     private fun save(playing: Boolean) {
