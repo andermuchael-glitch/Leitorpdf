@@ -104,10 +104,9 @@ class PdfPageView(context: Context) : View(context) {
 
     private fun renderCurrent(scope: CoroutineScope) {
         val pdfRenderer = renderer ?: return
-        val doc = document ?: return
         val targetPage = currentPage
-        highlightJob?.cancel()
-        highlightJob = scope.launch(Dispatchers.IO) {
+        renderJob?.cancel()
+        renderJob = scope.launch(Dispatchers.IO) {
             try {
                 val rendered = pdfRenderer.renderImageWithDPI(targetPage, 110f)
                 withContext(Dispatchers.Main) {
@@ -127,7 +126,6 @@ class PdfPageView(context: Context) : View(context) {
     private fun prepareHighlightPage(scope: CoroutineScope) {
         val doc = document ?: return
         val targetPage = currentPage
-        val targetDpi = 110f
         highlightJob?.cancel()
         highlightJob = scope.launch(Dispatchers.IO) {
             try {
