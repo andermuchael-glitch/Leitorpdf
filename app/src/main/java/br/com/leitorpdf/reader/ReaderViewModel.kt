@@ -296,19 +296,33 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
             .filter { it.locale.language == "pt" }
             .distinctBy { it.name }
             .sortedWith(
-                compareBy<Voice>(
-                    { !it.locale.toLanguageTag().startsWith("pt-BR") },
-                    { it.name }
-                )
+                compareByDescending<Voice> {
+                    it.locale.toLanguageTag().equals("pt-BR", ignoreCase = true)
+                }
+                    // Vozes de alta qualidade primeiro.
+                    .thenByDescending { it.quality }
+                    // Menor latência primeiro entre vozes de mesma qualidade.
+                    .thenBy { it.latency }
+                    // Preferimos voz instalada para evitar pequenas pausas de rede.
+                    .thenBy { it.isNetworkConnectionRequired }
+                    .thenBy { it.name }
             )
             .map { VoiceOption(it.name, voiceLabel(it)) }
+
+        // Se o usuário ainda não escolheu uma voz, selecionamos automaticamente
+        // a melhor pt-BR disponível. Isso evita cair numa voz genérica/robótica.
+        val preferredVoice = savedVoice?.takeIf { name ->
+            options.any { it.name == name }
+        } ?: options.firstOrNull()?.name
+
+        if (savedVoice == null && preferredVoice != null) {
+            prefs.edit().putString("voice", preferredVoice).apply()
+        }
 
         _state.value = _state.value.copy(
             speechReady = true,
             voices = options,
-            selectedVoice = savedVoice?.takeIf { name ->
-                options.any { it.name == name }
-            },
+            selectedVoice = preferredVoice,
             speechRate = savedRate,
             error = null
         )
