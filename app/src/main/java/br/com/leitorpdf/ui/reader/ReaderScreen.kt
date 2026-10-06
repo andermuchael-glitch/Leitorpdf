@@ -1,6 +1,9 @@
 package br.com.leitorpdf.ui.reader
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,6 +90,15 @@ fun ReaderScreen(
     var brightness by remember { mutableStateOf(0f) }
     var highlightEnabled by remember { mutableStateOf(true) }
     val pdfView = remember { PdfPageView(context) }
+
+    DisposableEffect(Unit) {
+        val activity = context as? android.app.Activity
+        val controller = activity?.window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+    BackHandler { onBack() }
 
     DisposableEffect(uri) {
         viewModel.openPdf(uri, fileName)
@@ -271,41 +283,43 @@ fun ReaderScreen(
     }
 
     Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(fileName, maxLines = 1)
-                        if (state.pageCount > 0) {
-                            Text(
-                                "Página " + state.selectedPage + " de " + state.pageCount,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
+        containerColor = androidx.compose.ui.graphics.Color.Black
+    ) { _ ->
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            AndroidView(factory = { pdfView }, modifier = Modifier.fillMaxSize())
+
+            if (state.isLoading) {
+                Text(
+                    "Preparando o PDF…",
+                    modifier = Modifier.align(Alignment.Center),
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+
+            Surface(
+                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                shape = RoundedCornerShape(50),
+                color = androidx.compose.ui.graphics.Color.Black.copy(alpha = .55f)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Voltar")
+                        Icon(Icons.Default.ArrowBack, "Voltar", tint = androidx.compose.ui.graphics.Color.White)
                     }
-                },
-                actions = {
+                    Text(
+                        "Página ${state.selectedPage} / ${state.pageCount}",
+                        color = androidx.compose.ui.graphics.Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, "Mais opções")
+                            Icon(Icons.Default.MoreVert, "Opções", tint = androidx.compose.ui.graphics.Color.White)
                         }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
-                        ) {
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Abrir outro PDF") },
                                 leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onOpenAnotherPdf()
-                                }
+                                onClick = { menuExpanded = false; onOpenAnotherPdf() }
                             )
                             DropdownMenuItem(
                                 text = { Text("Escolher página") },
@@ -319,190 +333,50 @@ fun ReaderScreen(
                             DropdownMenuItem(
                                 text = { Text("Escolher voz") },
                                 leadingIcon = { Icon(Icons.Default.RecordVoiceOver, null) },
-                                onClick = {
-                                    showVoiceDialog = true
-                                    menuExpanded = false
-                                }
+                                onClick = { showVoiceDialog = true; menuExpanded = false }
                             )
                             DropdownMenuItem(
                                 text = { Text("Aparência e marca-texto") },
                                 leadingIcon = { Icon(Icons.Default.Brightness6, null) },
-                                onClick = {
-                                    showAppearanceDialog = true
-                                    menuExpanded = false
-                                }
+                                onClick = { showAppearanceDialog = true; menuExpanded = false }
                             )
                         }
                     }
                 }
-            )
-        },
-        bottomBar = {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-            ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    if (state.pageCount > 0) {
-                        LinearProgressIndicator(
-                            progress = { state.selectedPage.toFloat() / state.pageCount.toFloat() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 10.dp)
-                        )
-                    }
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                if (state.isSpeaking) "Reproduzindo em segundo plano" else "Leitura do PDF",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                "Página " + state.selectedPage + " de " + state.pageCount,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = if (state.isSpeaking)
-                                MaterialTheme.colorScheme.primaryContainer
-                            else
-                                MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                if (state.isSpeaking) "● Ouvindo" else "● Pronto",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                color = if (state.isSpeaking)
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        }
-                    }
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = {
-                                viewModel.setSelectedPage(state.selectedPage - 1)
-                            },
-                            enabled = state.selectedPage > 1
-                        ) {
-                            Icon(Icons.Default.SkipPrevious, "Página anterior")
-                        }
-
-                        Card(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .padding(2.dp),
-                            shape = RoundedCornerShape(22.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            IconButton(
-                                onClick = { viewModel.toggleSpeech() },
-                                modifier = Modifier.fillMaxSize(),
-                                enabled = state.text.isNotBlank()
-                            ) {
-                                Icon(
-                                    if (state.isSpeaking) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    if (state.isSpeaking) "Pausar" else "Ouvir",
-                                    tint = MaterialTheme.colorScheme.onPrimary
-                                )
-                            }
-                        }
-
-                        IconButton(
-                            onClick = {
-                                viewModel.setSelectedPage(state.selectedPage + 1)
-                            },
-                            enabled = state.selectedPage < state.pageCount
-                        ) {
-                            Icon(Icons.Default.SkipNext, "Próxima página")
-                        }
-                    }
-
-                    if (state.resumeAvailable && !state.isSpeaking) {
-                        OutlinedButton(
-                            onClick = { viewModel.continueReading() },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Bookmark, null)
-                            Text("  Continuar de onde parei")
-                        }
-                    }
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Speed, "Velocidade", Modifier.size(20.dp))
-                        Slider(
-                            value = state.speechRate,
-                            onValueChange = { viewModel.setSpeechRate(it) },
-                            valueRange = 0.5f..2f,
-                            steps = 5,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            String.format(Locale.getDefault(), "%.1fx", state.speechRate),
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = { showVoiceDialog = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.RecordVoiceOver, null)
-                        Text("  " + (state.voices.firstOrNull { it.name == state.selectedVoice }?.label ?: "Escolher voz"))
-                    }
-                }
-            }
-        }
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                AndroidView(factory = { pdfView }, modifier = Modifier.fillMaxSize())
-                if (state.isLoading) Text("Preparando o PDF…")
             }
 
             state.error?.let {
-                Text(
-                    text = it,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    color = MaterialTheme.colorScheme.error
-                )
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp, start = 16.dp, end = 16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Text(
+                        it,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 14.dp),
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 10.dp
+            ) {
+                IconButton(
+                    onClick = { viewModel.toggleSpeech() },
+                    modifier = Modifier.size(64.dp),
+                    enabled = state.text.isNotBlank()
+                ) {
+                    Icon(
+                        if (state.isSpeaking) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (state.isSpeaking) "Pausar narração" else "Iniciar narração",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
             }
         }
     }
