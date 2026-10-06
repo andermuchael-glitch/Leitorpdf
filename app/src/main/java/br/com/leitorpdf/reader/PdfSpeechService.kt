@@ -92,8 +92,8 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                     speakCurrent()
                 } else {
                     paused = true
-                    prefs.edit().putBoolean("available", false).apply()
                     saveProgress()
+                    prefs.edit().putBoolean("available", false).apply()
                     updateNotification(false)
                 }
             }
