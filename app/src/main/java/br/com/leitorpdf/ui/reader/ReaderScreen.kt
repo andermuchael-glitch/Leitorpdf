@@ -60,7 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.collectAsState
 import br.com.leitorpdf.data.pdf.PdfPageView
-import br.com.leitorpdf.reader.ReaderViewModel\nimport java.util.Locale
+import br.com.leitorpdf.reader.ReaderViewModel
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
