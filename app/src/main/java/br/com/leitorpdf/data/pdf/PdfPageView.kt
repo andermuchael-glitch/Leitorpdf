@@ -38,6 +38,7 @@ class PdfPageView(context: Context) : View(context) {
     private var textSource = ""
     private var textMapping: List<Int> = emptyList()
     private var textPage = -1
+    private var lastHighlightEnd = 0
     private var filterMode = 0
     private var brightness = 0f
 
@@ -79,6 +80,7 @@ class PdfPageView(context: Context) : View(context) {
         if (currentPage == target) return
         currentPage = target
         highlightRects = emptyList()
+        lastHighlightEnd = 0
         invalidate()
         renderCurrent(scope)
         prepareHighlightPage(scope)
@@ -178,11 +180,15 @@ class PdfPageView(context: Context) : View(context) {
         }
 
         val search = target.take(180)
-        val start = textSource.indexOf(search)
+        var start = textSource.indexOf(search, lastHighlightEnd.coerceAtMost(textSource.length))
+        if (start < 0 && lastHighlightEnd > 0) {
+            start = textSource.indexOf(search)
+        }
         if (start < 0) {
             highlightRects = emptyList()
             return
         }
+        lastHighlightEnd = start + search.length
 
         val end = (start + search.length - 1).coerceAtMost(textMapping.lastIndex)
         val pageHeight = document?.getPage(currentPage)?.mediaBox?.height ?: return
@@ -278,6 +284,7 @@ class PdfPageView(context: Context) : View(context) {
         textSource = ""
         textMapping = emptyList()
         textPage = -1
+        lastHighlightEnd = 0
         pageCount = 0
         currentPage = 0
     }
