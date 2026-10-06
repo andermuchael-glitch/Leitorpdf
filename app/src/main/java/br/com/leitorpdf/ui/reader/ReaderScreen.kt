@@ -80,12 +80,14 @@ fun ReaderScreen(
     var pageCount by remember { mutableStateOf(0) }
     var showPageDialog by remember { mutableStateOf(false) }
     var showVoiceDialog by remember { mutableStateOf(false) }
+    var showCloudDialog by remember { mutableStateOf(false) }
     var showAppearanceDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pageInput by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf(0) }
     var brightness by remember { mutableStateOf(0f) }
     var highlightEnabled by remember { mutableStateOf(true) }
+    var cloudEndpointInput by remember { mutableStateOf(viewModel.cloudEndpoint()) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(uri) {
@@ -150,13 +152,12 @@ fun ReaderScreen(
             text = {
                 Column {
                     Text(
-                        "Escolha uma das vozes em português instaladas no aparelho.",
+                        if (state.cloudTtsConfigured) "Narrador neural profissional • Português (Brasil)"
+                        else "Para usar a voz profissional, conecte o servidor de voz neural.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Divider(Modifier.padding(vertical = 10.dp))
-                    if (state.voices.isEmpty()) {
-                        Text("Nenhuma voz em português foi encontrada. Instale vozes em Português nas configurações de Texto para fala do Android.")
-                    } else {
+                    if (state.cloudTtsConfigured) {
                         state.voices.forEachIndexed { index, voice ->
                             TextButton(
                                 onClick = {
@@ -180,13 +181,54 @@ fun ReaderScreen(
                                 showVoiceDialog = false
                             },
                             modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Voz padrão do Android")
-                        }
+                        ) { Text("Usar voz do aparelho") }
+                    } else {
+                        Text("O aplicativo já está preparado para Chirp 3 HD. Basta informar o endereço do servidor TTS.")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            cloudEndpointInput = state.cloudTtsEndpoint
+                            showVoiceDialog = false
+                            showCloudDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        Text(if (state.cloudTtsConfigured) "Alterar servidor de voz" else "Configurar voz profissional")
                     }
                 }
             },
             confirmButton = {}
+        )
+    }
+
+    if (showCloudDialog) {
+        AlertDialog(
+            onDismissRequest = { showCloudDialog = false },
+            title = { Text("Servidor da voz profissional") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Informe a URL HTTPS do endpoint /api/tts. A chave do Google Cloud fica somente no servidor, nunca dentro do APK.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    OutlinedTextField(
+                        value = cloudEndpointInput,
+                        onValueChange = { cloudEndpointInput = it },
+                        label = { Text("URL do servidor TTS") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setCloudEndpoint(cloudEndpointInput)
+                    showCloudDialog = false
+                }) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloudDialog = false }) { Text("Cancelar") }
+            }
         )
     }
 
