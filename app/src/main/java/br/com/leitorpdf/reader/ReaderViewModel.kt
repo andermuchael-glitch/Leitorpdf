@@ -181,7 +181,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val c = _state.value
         if (c.isSpeaking) {
             pauseSpeech()
-        } else if (c.resumeAvailable && prefs.getString("uri", null) == c.uri) {
+            return
+        }
+
+        // Se a página foi alterada manualmente, iniciar exatamente nela.
+        val savedPage = prefs.getInt("page", c.selectedPage)
+        val sameDocument = prefs.getString("uri", null) == c.uri
+        if (sameDocument && c.selectedPage == savedPage && c.resumeAvailable) {
             continueReading()
         } else {
             startReadingFromPage(c.selectedPage)
