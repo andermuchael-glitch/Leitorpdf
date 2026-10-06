@@ -33,6 +33,10 @@ class PdfPageView(context: Context) : View(context) {
     }
     private var highlightText = ""
     private var highlightRects: List<RectF> = emptyList()
+    private var textPositions: List<TextPosition> = emptyList()
+    private var textSource = ""
+    private var textMapping: List<Int> = emptyList()
+    private var textPage = -1
     private var filterMode = 0
     private var brightness = 0f
 
@@ -70,14 +74,21 @@ class PdfPageView(context: Context) : View(context) {
 
     fun goToPage(page: Int, scope: CoroutineScope) {
         if (pageCount <= 0) return
-        currentPage = page.coerceIn(0, pageCount - 1)
+        val target = page.coerceIn(0, pageCount - 1)
+        if (currentPage == target) return
+        currentPage = target
+        highlightRects = emptyList()
+        invalidate()
         renderCurrent(scope)
+        prepareHighlightPage(scope)
     }
 
     fun setHighlightText(text: String, scope: CoroutineScope) {
         if (highlightText == text) return
         highlightText = text
-        renderCurrent(scope)
+        updateHighlightRects()
+        invalidate()
+        if (textPage != currentPage) prepareHighlightPage(scope)
     }
 
     fun setFilterMode(mode: Int) {
@@ -116,51 +127,77 @@ class PdfPageView(context: Context) : View(context) {
         }
     }
 
-    private fun findHighlightRects(
-        doc: PDDocument,
-        pageIndex: Int,
-        phrase: String,
-        dpi: Float
-    ): List<RectF> {
-        val target = normalizeForMatch(phrase)
-        if (target.length < 3) return emptyList()
+    private fun prepareHighlightPage(scope: CoroutineScope) {
+        val doc = document ?: return
+        val targetPage = currentPage
+        val targetDpi = 110f
+        renderJob?.cancel()
+        renderJob = scope.launch(Dispatchers.IO) {
+            try {
+                val positions = mutableListOf<TextPosition>()
+                val stripper = object : PDFTextStripper() {
+                    override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
+                        if (textPositions != null) positions.addAll(textPositions)
+                    }
+                }
+                stripper.sortByPosition = true
+                stripper.startPage = targetPage + 1
+                stripper.endPage = targetPage + 1
+                stripper.getText(doc)
 
-        val positions = mutableListOf<TextPosition>()
-        val stripper = object : PDFTextStripper() {
-            override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
-                if (textPositions != null) positions.addAll(textPositions)
+                val source = StringBuilder()
+                val mapping = mutableListOf<Int>()
+                positions.forEachIndexed { index, position ->
+                    val normalized = normalizeForMatch(position.unicode.orEmpty())
+                    normalized.forEach { ch ->
+                        source.append(ch)
+                        mapping.add(index)
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (currentPage == targetPage) {
+                        textPositions = positions
+                        textSource = source.toString()
+                        textMapping = mapping
+                        textPage = targetPage
+                        updateHighlightRects()
+                        invalidate()
+                    }
+                }
+            } catch (_: Throwable) {
             }
         }
-        stripper.sortByPosition = true
-        stripper.startPage = pageIndex + 1
-        stripper.endPage = pageIndex + 1
-        stripper.getText(doc)
+    }
 
-        val source = StringBuilder()
-        val mapping = mutableListOf<Int>()
-        positions.forEachIndexed { index, position ->
-            val normalized = normalizeForMatch(position.unicode.orEmpty())
-            if (normalized.isNotEmpty()) {
-                normalized.forEach { ch ->
-                    source.append(ch)
-                    mapping.add(index)
-                }
-            }
+    private fun updateHighlightRects() {
+        if (highlightText.isBlank() || textPage != currentPage || textSource.isBlank()) {
+            highlightRects = emptyList()
+            return
+        }
+
+        val target = normalizeForMatch(highlightText)
+        if (target.length < 3) {
+            highlightRects = emptyList()
+            return
         }
 
         val search = target.take(180)
-        val start = source.indexOf(search)
-        if (start < 0) return emptyList()
-        val end = (start + search.length - 1).coerceAtMost(mapping.lastIndex)
-        if (end < start) return emptyList()
+        val start = textSource.indexOf(search)
+        if (start < 0) {
+            highlightRects = emptyList()
+            return
+        }
 
-        return (start..end)
-            .map { mapping[it] }
+        val end = (start + search.length - 1).coerceAtMost(textMapping.lastIndex)
+        val pageHeight = document?.getPage(currentPage)?.mediaBox?.height ?: return
+        val scale = 110f / 72f
+
+        highlightRects = (start..end)
+            .map { textMapping[it] }
             .distinct()
             .mapNotNull { index ->
-                val p = positions.getOrNull(index) ?: return@mapNotNull null
-                val pageHeight = doc.getPage(pageIndex).mediaBox.height
-                val scale = dpi / 72f
+                val p = textPositions.getOrNull(index) ?: return@mapNotNull null
                 RectF(
                     p.x * scale,
                     (pageHeight - p.y - p.height) * scale,
@@ -169,9 +206,6 @@ class PdfPageView(context: Context) : View(context) {
                 )
             }
     }
-
-    private fun normalizeForMatch(value: String): String =
-        value.lowercase().replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
 
     private fun colorFilter(): ColorMatrixColorFilter? {
         val matrix = ColorMatrix()
@@ -242,6 +276,10 @@ class PdfPageView(context: Context) : View(context) {
         document?.close()
         document = null
         highlightRects = emptyList()
+        textPositions = emptyList()
+        textSource = ""
+        textMapping = emptyList()
+        textPage = -1
         pageCount = 0
         currentPage = 0
     }
