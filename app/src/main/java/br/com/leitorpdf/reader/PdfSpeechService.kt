@@ -151,41 +151,11 @@ class PdfSpeechService : Service() {
 
                 started(p.first, p.second)
                 play(file, g, p)
-                prefetch(p, selectedVoice, g)
             } catch (e: Throwable) {
                 if (g == generation && !paused) {
                     fail(e.message ?: "Erro ao gerar a voz neural.")
                 }
             }
-        }
-    }
-
-    private fun prefetch(current: Pair<Int, Int>, selectedVoice: String, g: Long) {
-        val next = generateSequence(
-            advance(current.first, current.second)
-        ) { advance(it.first, it.second) }
-            .take(2)
-            .toList()
-
-        scope.launch(Dispatchers.Default) {
-            for (position in next) {
-                if (g != generation || paused) return@launch
-                val text = parts(pages[position.first - 1])
-                    .getOrNull(position.second)?.first ?: continue
-                val cached = cacheFile(text, selectedVoice, rate)
-                if (!cached.isFile || cached.length() <= 44L) {
-                    runCatching {
-                        KokoroLocalTts.synthesize(
-                            this@PdfSpeechService,
-                            text,
-                            selectedVoice,
-                            rate,
-                            cached
-                        )
-                    }
-                }
-            }
-            pruneCache()
         }
     }
 
@@ -377,8 +347,8 @@ class PdfSpeechService : Service() {
     private fun release() {
         player?.let {
             runCatching { it.stop() }
-            it.reset()
-            it.release()
+            runCatching { it.reset() }
+            runCatching { it.release() }
         }
         player = null
     }
