@@ -110,7 +110,7 @@ fun ReaderScreen(
     LaunchedEffect(state.isSpeaking) {
         while (state.isSpeaking) {
             viewModel.syncPlayback()
-            kotlinx.coroutines.delay(350)
+            kotlinx.coroutines.delay(800)
         }
     }
 
@@ -154,7 +154,7 @@ fun ReaderScreen(
                     if (state.voices.isEmpty()) {
                         Text("Nenhuma voz em português foi encontrada. Instale vozes em Português nas configurações de Texto para fala do Android.")
                     } else {
-                        state.voices.forEach { voice ->
+                        state.voices.forEachIndexed { index, voice ->
                             TextButton(
                                 onClick = {
                                     viewModel.selectVoice(voice.name)
@@ -166,7 +166,7 @@ fun ReaderScreen(
                                     Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(voice.label)
+                                    Text("Voz " + (index + 1) + " — " + voice.label)
                                     if (state.selectedVoice == voice.name) Text("✓")
                                 }
                             }
