@@ -190,31 +190,20 @@ class PdfPageView(context: Context) : View(context) {
                             .thenBy { it.x }
                     )
 
+                // Mantemos exatamente um caractere por TextPosition no mapa.
+                // A busca usa a mesma normalização sem espaços/pontuação para que
+                // o texto do TTS corresponda ao texto visual do PDF.
                 val source = StringBuilder()
                 val mapping = mutableListOf<Int>()
-                var previous: TextPosition? = null
 
                 positions.forEachIndexed { index, position ->
-                    if (previous != null) {
-                        val previousPosition = previous!!
-                        val sameLine = abs(position.y - previousPosition.y) <=
-                            max(1f, max(position.height, previousPosition.height) * 0.65f)
-
-                        if (!sameLine) {
-                            source.append(" ")
-                            mapping.add(-1)
-                        } else if (position.x - (previousPosition.x + previousPosition.width) > 1.5f) {
-                            source.append(" ")
-                            mapping.add(-1)
+                    position.unicode.orEmpty().forEach { ch ->
+                        val normalized = normalizeForMatch(ch.toString())
+                        normalized.forEach { normalizedChar ->
+                            source.append(normalizedChar)
+                            mapping.add(index)
                         }
                     }
-
-                    val normalized = position.unicode.orEmpty()
-                    normalized.forEach { ch ->
-                        source.append(ch)
-                        mapping.add(index)
-                    }
-                    previous = position
                 }
 
                 withContext(Dispatchers.Main) {
