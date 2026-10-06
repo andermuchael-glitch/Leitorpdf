@@ -15,7 +15,7 @@ class CloudTtsClient(private val context: Context) {
         private const val ENDPOINT_KEY = "cloud_tts_endpoint"
         private const val CONNECT_TIMEOUT_MS = 12_000
         private const val READ_TIMEOUT_MS = 30_000
-        private const val DEFAULT_ENDPOINT = "https://leitorpdf-cgawvbhbm-andermuchael-5187.vercel.app/api/tts"
+        private const val DEFAULT_ENDPOINT = "https://leitorpdf-tts.vercel.app/api/tts"
     }
 
     fun endpoint(): String {
