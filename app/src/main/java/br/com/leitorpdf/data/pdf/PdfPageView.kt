@@ -69,7 +69,6 @@ class PdfPageView(context: Context) : View(context) {
 
     private fun renderCurrent(scope: CoroutineScope) {
         val pdfRenderer = renderer ?: return
-        if (width <= 0 || height <= 0) return
         renderJob?.cancel()
         renderJob = scope.launch(Dispatchers.IO) {
             try {
