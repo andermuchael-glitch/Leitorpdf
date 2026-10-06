@@ -26,6 +26,7 @@ class PdfPageView(context: Context) : View(context) {
     private var renderer: PDFRenderer? = null
     private var bitmap: Bitmap? = null
     private var renderJob: Job? = null
+    private var highlightJob: Job? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(105, 255, 220, 0)
@@ -105,22 +106,18 @@ class PdfPageView(context: Context) : View(context) {
         val pdfRenderer = renderer ?: return
         val doc = document ?: return
         val targetPage = currentPage
-        val targetHighlight = highlightText
-        renderJob?.cancel()
-        renderJob = scope.launch(Dispatchers.IO) {
+        highlightJob?.cancel()
+        highlightJob = scope.launch(Dispatchers.IO) {
             try {
-                val targetDpi = 110f
-                val rendered = pdfRenderer.renderImageWithDPI(targetPage, targetDpi)
-                val rects = if (targetHighlight.isBlank()) {
-                    emptyList()
-                } else {
-                    findHighlightRects(doc, targetPage, targetHighlight, targetDpi)
-                }
+                val rendered = pdfRenderer.renderImageWithDPI(targetPage, 110f)
                 withContext(Dispatchers.Main) {
-                    bitmap?.recycle()
-                    bitmap = rendered
-                    highlightRects = rects
-                    invalidate()
+                    if (currentPage == targetPage) {
+                        bitmap?.recycle()
+                        bitmap = rendered
+                        invalidate()
+                    } else {
+                        rendered.recycle()
+                    }
                 }
             } catch (_: Throwable) {
             }
@@ -131,8 +128,8 @@ class PdfPageView(context: Context) : View(context) {
         val doc = document ?: return
         val targetPage = currentPage
         val targetDpi = 110f
-        renderJob?.cancel()
-        renderJob = scope.launch(Dispatchers.IO) {
+        highlightJob?.cancel()
+        highlightJob = scope.launch(Dispatchers.IO) {
             try {
                 val positions = mutableListOf<TextPosition>()
                 val stripper = object : PDFTextStripper() {
