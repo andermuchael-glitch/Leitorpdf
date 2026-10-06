@@ -1,0 +1,11 @@
+{
+  "name": "leitorpdf-tts",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google-cloud/text-to-speech": "^6.0.0"
+  }
+}
