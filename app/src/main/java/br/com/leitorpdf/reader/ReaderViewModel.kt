@@ -1,7 +1,7 @@
 package br.com.leitorpdf.reader
 
 import android.app.Application
-import android.content.Intent
+import android.content.Context\nimport android.content.Intent
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
@@ -43,7 +43,7 @@ data class ReaderUiState(
 class ReaderViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
     private val extractor = PdfTextExtractor(application)
     private val app = application
-    private val prefs = application.getSharedPreferences("reading_progress", Application.MODE_PRIVATE)
+    private val prefs = application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
