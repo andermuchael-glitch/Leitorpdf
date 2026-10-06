@@ -90,6 +90,9 @@ class PdfSpeechService : Service() {
             }
         }
 
+
+    }
+
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 val parsed = parseUtterance(utteranceId) ?: return
@@ -137,9 +140,8 @@ class PdfSpeechService : Service() {
                 if (!paused) fail("O mecanismo de voz encontrou um erro durante a leitura.")
             }
         })
-    }
 
-    override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
+$marker
         when (i?.action) {
             ACTION_PAUSE -> pause()
             ACTION_STOP -> stopReading()
@@ -355,7 +357,10 @@ class PdfSpeechService : Service() {
             return
         }
 
-        val g = ++generation
+        paused = true
+        generation++
+        tts?.stop()
+        val g = generation
         scope.launch(Dispatchers.IO) {
             try {
                 val tempDir = File(cacheDir, "tts_export").apply { mkdirs() }
@@ -392,6 +397,7 @@ class PdfSpeechService : Service() {
                 finishExport(e.message ?: "Não foi possível salvar os arquivos de áudio.")
             } finally {
                 File(cacheDir, "tts_export").deleteRecursively()
+                installPlaybackListener()
             }
         }
     }
