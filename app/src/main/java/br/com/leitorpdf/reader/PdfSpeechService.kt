@@ -6,12 +6,11 @@ import android.content.pm.ServiceInfo
 import android.media.*
 import android.net.Uri
 import android.os.*
-import android.speech.tts.*
 import androidx.core.app.*
 import kotlinx.coroutines.*
 import java.util.Locale
 
-class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
+class PdfSpeechService : Service() {
     companion object {
         const val ACTION_PLAY="br.com.leitorpdf.PLAY"
         const val ACTION_PAUSE="br.com.leitorpdf.PAUSE"
@@ -28,7 +27,6 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
         private const val PREFS="reading_progress"
     }
 
-    private lateinit var tts:TextToSpeech
     private lateinit var cloud:CloudTtsClient
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     private val prefs by lazy{getSharedPreferences(PREFS,MODE_PRIVATE)}
@@ -42,21 +40,12 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
     private var paused=false
     private var player:MediaPlayer?=null
     private var generation=0L
-    private var systemFallback=false
-    private var ready=false
 
     override fun onCreate(){
         super.onCreate()
         cloud=CloudTtsClient(this)
         channel()
-        tts=TextToSpeech(this,this)
-        tts.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-        tts.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
-            override fun onStart(id:String?){if(!isId(id))return;pos(id)?.let{started(it.first,it.second)}}
-            override fun onDone(id:String?){if(!isId(id)||paused)return;pos(id)?.let{finished(it.first,it.second)}}
-            @Suppress("DEPRECATION") override fun onError(id:String?){if(isId(id)){paused=true;save(false);notify(false)}}
-        })
-    }
+
 
     override fun onStartCommand(i:Intent?,flags:Int,startId:Int):Int{
         when(i?.action){
@@ -74,7 +63,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                 }
                 paused=false
                 foreground()
-                if(ready)start()
+                start()
             }
         }
         return START_STICKY
@@ -82,7 +71,8 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
 
     private fun start(){
         val v=voice?.takeIf{it.startsWith("pt-BR-Chirp3-HD-")}
-        if(v!=null&&cloud.isConfigured()){systemFallback=false;cloudSegment(v)}else{systemFallback=true;systemSegment()}
+        if(v!=null && cloud.isConfigured()) cloudSegment(v)
+        else fail("Selecione uma voz profissional para iniciar a leitura.")
     }
 
     private fun cloudSegment(v:String){
@@ -94,7 +84,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                 text?.let{cloud.synthesize(it,v,rate)}
             }
             if(g!=generation||paused)return@launch
-            if(f==null){systemFallback=true;systemSegment();return@launch}
+            if(f==null){fail("Não foi possível gerar a voz profissional. Verifique a conexão e a configuração do servidor TTS.");return@launch}
             started(p.first,p.second)
             play(f,g,p)
             prefetch(p,v)
@@ -129,30 +119,14 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
             finished(p.first,p.second)
         }
         m.setOnErrorListener{_,_,_->
-            if(g==generation&&!paused){systemFallback=true;systemSegment()}
+            if(g==generation&&!paused) fail("Falha ao reproduzir o áudio da voz profissional.")
             release()
             true
         }
-        try{m.prepareAsync()}catch(_:Throwable){release();systemFallback=true;systemSegment()}
-    }
-
-    private fun systemSegment(){
-        if(!ready||paused)return
-        val p=normalize()?:return
-        configureSystem()
-        val text=parts(pages[p.first-1]).getOrNull(p.second)?.first?:return
-        tts.stop()
-        tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,id(p.first,p.second))
-        save(true)
-        notify(true)
-    }
-
-    private fun configureSystem(){
-        val wanted=voice?.let{n->tts.voices?.firstOrNull{it.name==n}}
-        if(wanted!=null){tts.setLanguage(wanted.locale);tts.voice=wanted}else tts.setLanguage(Locale("pt","BR"))
-        tts.setSpeechRate(rate)
-        tts.setPitch(.98f)
-    }
+        try{m.prepareAsync()}catch(_:Throwable){
+            release()
+            if(g==generation&&!paused) fail("Falha ao preparar o áudio da voz profissional.")
+        }
 
     private fun started(p:Int,s:Int){
         page=p
@@ -177,9 +151,8 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
         page=n.first
         sentence=n.second
         save(true)
-        if(systemFallback)systemSegment()
-        else voice?.takeIf{it.startsWith("pt-BR-Chirp3-HD-")&&cloud.isConfigured()}?.let{cloudSegment(it)}
-            ?:run{systemFallback=true;systemSegment()}
+        voice?.takeIf{it.startsWith("pt-BR-Chirp3-HD-")&&cloud.isConfigured()}?.let{cloudSegment(it)}
+            ?:fail("A voz profissional não está configurada.")
     }
 
     private fun normalize():Pair<Int,Int>?{
@@ -207,15 +180,8 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
             .map{it.trim()}.filter{it.isNotBlank()}.map{it to it}
     }
 
-    private fun id(p:Int,s:Int)="pdf-reader-$p-$s"
-    private fun isId(v:String?)=v?.startsWith("pdf-reader-")==true
-    private fun pos(v:String?):Pair<Int,Int>?{
-        val m=Regex("^pdf-reader-(\\d+)-(\\d+)$").find(v?:return null)?:return null
-        return m.groupValues[1].toIntOrNull()?.let{p->m.groupValues[2].toIntOrNull()?.let{s->p to s}}
-    }
-
-    private fun pause(){paused=true;generation++;tts.stop();release();save(false);notify(false)}
-    private fun stop(){paused=true;generation++;tts.stop();release();save(false);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf()}
+    private fun pause(){paused=true;generation++;release();save(false);notify(false)}
+    private fun stop(){paused=true;generation++;release();save(false);stopForeground(STOP_FOREGROUND_REMOVE);stopSelf()}
 
     private fun release(){
         player?.let{try{it.stop()}catch(_:Throwable){};it.reset();it.release()}
@@ -243,7 +209,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
         val stop=PendingIntent.getService(this,2,Intent(this,PdfSpeechService::class.java).setAction(ACTION_STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this,CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Leitor PDF • "+if(playing){if(systemFallback)"Voz do aparelho" else "Narrador profissional"}else"Pausado")
+            .setContentTitle("Leitor PDF • "+if(playing){"Narrador profissional"}else"Pausado")
             .setContentText("$fileName • página $page de ${pages.size}")
             .setOngoing(playing).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .addAction(if(playing)android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,if(playing)"Pausar" else"Continuar",toggle)
@@ -252,6 +218,14 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
 
     private fun channel(){getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL,"Leitura de PDF",NotificationManager.IMPORTANCE_LOW))}
     override fun onInit(status:Int){if(status==TextToSpeech.SUCCESS){ready=true;if(pages.isNotEmpty()&&!paused)start()}}
-    override fun onDestroy(){generation++;scope.cancel();release();tts.stop();tts.shutdown();super.onDestroy()}
+    private fun fail(message:String){
+        paused=true
+        generation++
+        release()
+        prefs.edit().putBoolean("playing",false).putString("speech_error",message).apply()
+        notify(false)
+    }
+
+    override fun onDestroy(){generation++;scope.cancel();release();super.onDestroy()}
     override fun onBind(i:Intent?):IBinder?=null
 }
