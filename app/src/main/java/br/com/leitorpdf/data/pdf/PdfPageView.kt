@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.view.View
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -18,7 +17,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class PdfPageView(context: Context) : View(context) {
-    private var descriptor: ParcelFileDescriptor? = null
     private var document: PDDocument? = null
     private var renderer: PDFRenderer? = null
     private var bitmap: Bitmap? = null
@@ -37,12 +35,11 @@ class PdfPageView(context: Context) : View(context) {
         renderJob = scope.launch(Dispatchers.IO) {
             try {
                 PDFBoxResourceLoader.init(context.applicationContext)
-                val fd = context.contentResolver.openFileDescriptor(uri, "r")
+                val input = context.contentResolver.openInputStream(uri)
                     ?: error("Não foi possível abrir o PDF.")
-                val doc = PDDocument.load(fd.fileDescriptor)
+                val doc = input.use { PDDocument.load(it) }
                 val pdfRenderer = PDFRenderer(doc).apply { setSubsamplingAllowed(true) }
                 withContext(Dispatchers.Main) {
-                    descriptor = fd
                     document = doc
                     renderer = pdfRenderer
                     pageCount = doc.numberOfPages
@@ -110,8 +107,6 @@ class PdfPageView(context: Context) : View(context) {
         renderer = null
         document?.close()
         document = null
-        descriptor?.close()
-        descriptor = null
         pageCount = 0
         currentPage = 0
     }
