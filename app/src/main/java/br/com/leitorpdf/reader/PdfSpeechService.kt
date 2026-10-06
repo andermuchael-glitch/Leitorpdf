@@ -156,8 +156,16 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
 
         val selected = voiceName?.let { wanted -> tts.voices?.firstOrNull { it.name == wanted } }
         if (selected != null) {
-            tts.voice = selected
-            tts.setLanguage(selected.locale)
+            val languageResult = tts.setLanguage(selected.locale)
+            if (languageResult != TextToSpeech.LANG_MISSING_DATA &&
+                languageResult != TextToSpeech.LANG_NOT_SUPPORTED
+            ) {
+                // setLanguage pode trocar a voz; por isso a voz escolhida
+                // precisa ser aplicada por ultimo.
+                tts.voice = selected
+            } else {
+                tts.setLanguage(Locale("pt", "BR"))
+            }
         } else {
             val result = tts.setLanguage(java.util.Locale("pt", "BR"))
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
