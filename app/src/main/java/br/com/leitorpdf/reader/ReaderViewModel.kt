@@ -48,39 +48,44 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val prefs =
         application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
 
-    private val tts = TextToSpeech(app) { status ->
-        if (status == TextToSpeech.SUCCESS) {
-            val voices = AndroidTts.portugueseVoices(tts)
-            val saved = prefs.getString("voice", null)
-            val selected = voices.firstOrNull { it.name == saved }?.name
-                ?: voices.firstOrNull()?.name
-
-            _state.value = _state.value.copy(
-                speechReady = true,
-                voices = voices.map { VoiceOption(it.name, it.label) },
-                selectedVoice = selected,
-                error = if (voices.isEmpty()) {
-                    "Nenhuma voz em português está instalada. Toque em «Gerenciar vozes» para baixar uma."
-                } else null
-            )
-
-            if (selected != null) {
-                prefs.edit().putString("voice", selected).apply()
-            }
-        } else {
-            _state.value = _state.value.copy(
-                speechReady = false,
-                error = "O mecanismo de voz do Android não está disponível."
-            )
-        }
-    }
-
     private val _state = MutableStateFlow(
         ReaderUiState(
             selectedVoice = prefs.getString("voice", null),
             speechRate = prefs.getFloat("rate", 1f).coerceIn(.5f, 2f)
         )
     )
+
+    private lateinit var tts: TextToSpeech
+
+    init {
+        tts = TextToSpeech(app) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val voices = AndroidTts.portugueseVoices(tts)
+                val saved = prefs.getString("voice", null)
+                val selected = voices.firstOrNull { it.name == saved }?.name
+                    ?: voices.firstOrNull()?.name
+
+                _state.value = _state.value.copy(
+                    speechReady = true,
+                    voices = voices.map { VoiceOption(it.name, it.label) },
+                    selectedVoice = selected,
+                    error = if (voices.isEmpty()) {
+                        "Nenhuma voz em português está instalada. Toque em «Gerenciar vozes» para baixar uma."
+                    } else null
+                )
+
+                if (selected != null) {
+                    prefs.edit().putString("voice", selected).apply()
+                }
+            } else {
+                _state.value = _state.value.copy(
+                    speechReady = false,
+                    error = "O mecanismo de voz do Android não está disponível."
+                )
+            }
+        }
+    }
+
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
 
     fun openPdf(uri: Uri, name: String) {
