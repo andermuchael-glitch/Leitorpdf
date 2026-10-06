@@ -92,6 +92,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
                     speakCurrent()
                 } else {
                     paused = true
+                    prefs.edit().putBoolean("available", false).apply()
                     saveProgress()
                     updateNotification(false)
                 }
@@ -184,6 +185,7 @@ class PdfSpeechService : Service(), TextToSpeech.OnInitListener {
             .putInt("chunk", currentChunk.coerceAtLeast(0))
             .putFloat("rate", rate)
             .putString("voice", voiceName)
+            .putBoolean("available", true)
             .apply()
     }
 
