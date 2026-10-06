@@ -324,10 +324,8 @@ class PdfSpeechService : Service() {
                 while (start < sentenceText.length) {
                     var end = minOf(start + 280, sentenceText.length)
                     if (end < sentenceText.length) {
-                        val breakAt = sentenceText.lastIndexOfAny(
-                            charArrayOf(' ', ',', ';', ':', '—', '-'),
-                            endIndex = end
-                        )
+                        val breakAt = sentenceText.substring(start, end).lastIndexOf(' ')
+                            .let { if (it >= 0) start + it else start }
                         if (breakAt > start + 120) end = breakAt
                     }
                     val chunk = sentenceText.substring(start, end).trim()
