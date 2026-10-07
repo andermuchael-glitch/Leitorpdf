@@ -102,6 +102,7 @@ fun ReaderScreen(
     var showVoiceDialog by remember { mutableStateOf(false) }
     var showNeuralDialog by remember { mutableStateOf(false) }
     var neuralEndpoint by remember { mutableStateOf(viewModel.neuralEndpoint()) }
+    var neuralToken by remember { mutableStateOf(viewModel.neuralToken()) }
     val voicePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked ->
         picked?.let(viewModel::importNeuralVoice)
     }
@@ -205,9 +206,16 @@ fun ReaderScreen(
                         placeholder = { Text("https://seu-servidor:8000") },
                         singleLine = true
                     )
+                    OutlinedTextField(
+                        value = neuralToken,
+                        onValueChange = { neuralToken = it },
+                        label = { Text("Token (opcional)") },
+                        singleLine = true
+                    )
                     Button(
                         onClick = {
                             viewModel.configureNeuralEndpoint(neuralEndpoint)
+                            viewModel.configureNeuralToken(neuralToken)
                             voicePicker.launch("audio/*")
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -229,6 +237,7 @@ fun ReaderScreen(
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.configureNeuralEndpoint(neuralEndpoint)
+                    viewModel.configureNeuralToken(neuralToken)
                     showNeuralDialog = false
                 }) { Text("Salvar") }
             },
