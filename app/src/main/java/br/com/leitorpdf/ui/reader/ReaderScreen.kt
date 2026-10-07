@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -109,6 +110,7 @@ fun ReaderScreen(
     var reflowFontSize by remember { mutableStateOf(21f) }
     var reflowLineHeight by remember { mutableStateOf(1.55f) }
     var reflowBackground by remember { mutableStateOf(0) }
+    var controlsVisible by remember { mutableStateOf(true) }
     val pdfView = remember { PdfPageView(context) }
 
     DisposableEffect(Unit) {
@@ -131,9 +133,16 @@ fun ReaderScreen(
     }
 
     LaunchedEffect(state.selectedPage) {
+        controlsVisible = true
         if (pageCount > 0) {
             pdfView.goToPage(state.selectedPage - 1, scope)
         }
+    }
+
+    LaunchedEffect(state.selectedPage, state.isSpeaking, reflowMode) {
+        controlsVisible = true
+        kotlinx.coroutines.delay(3500)
+        controlsVisible = false
     }
 
     LaunchedEffect(state.highlightText) {
@@ -441,6 +450,16 @@ fun ReaderScreen(
                 )
             }
 
+            if (!controlsVisible) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { controlsVisible = true })
+                        }
+                )
+            }
+
             if (state.isLoading) {
                 Text(
                     "Preparando o PDF…",
@@ -449,6 +468,7 @@ fun ReaderScreen(
                 )
             }
 
+            if (controlsVisible) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -628,6 +648,7 @@ fun ReaderScreen(
                         )
                     }
                 }
+            }
             }
         }
     }
