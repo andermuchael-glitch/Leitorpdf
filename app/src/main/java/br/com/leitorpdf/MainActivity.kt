@@ -7,21 +7,44 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,18 +52,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.leitorpdf.reader.ReaderViewModel
 import br.com.leitorpdf.ui.reader.ReaderScreen
 import br.com.leitorpdf.ui.theme.LeitorPdfTheme
 
+private val ListenOrange = Color(0xFFFF5A1F)
+private val ListenPeach = Color(0xFFFFF3ED)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
-            LeitorPdfTheme {
+            LeitorPdfTheme(darkTheme = false) {
                 LeitorPdfApp(
                     initialUri = intent?.data,
                     activity = this
@@ -60,8 +90,6 @@ private fun LeitorPdfApp(
         android.content.Context.MODE_PRIVATE
     )
 
-    // Se o usuário já abriu um PDF anteriormente, ele volta direto para o
-    // leitor. Não é mais necessário escolher o arquivo toda vez.
     val rememberedUri = remember {
         initialUri ?: prefs.getString("last_uri", null)?.let(Uri::parse)
     }
@@ -89,7 +117,6 @@ private fun LeitorPdfApp(
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: SecurityException) {
-                // Alguns provedores não oferecem permissão persistente.
             }
 
             val name = uri.lastPathSegment
@@ -122,63 +149,403 @@ private fun LeitorPdfApp(
         )
     } else {
         HomeScreen(
-            onOpenPdf = {
-                picker.launch(arrayOf("application/pdf"))
+            lastName = prefs.getString("last_name", null),
+            lastPage = prefs.getInt("current_page", 1),
+            hasLastDocument = prefs.getString("last_uri", null) != null,
+            onOpenPdf = { picker.launch(arrayOf("application/pdf")) },
+            onContinue = {
+                prefs.getString("last_uri", null)
+                    ?.let(Uri::parse)
+                    ?.let {
+                        selectedUri = it
+                        selectedName = prefs.getString("last_name", "Documento PDF")
+                            ?: "Documento PDF"
+                    }
             }
         )
     }
 }
 
 @Composable
-private fun HomeScreen(onOpenPdf: () -> Unit) {
-    Scaffold { padding ->
+private fun HomeScreen(
+    lastName: String?,
+    lastPage: Int,
+    hasLastDocument: Boolean,
+    onOpenPdf: () -> Unit,
+    onContinue: () -> Unit
+) {
+    var searchMode by remember { mutableStateOf(false) }
+
+    Scaffold(
+        containerColor = ListenPeach
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 22.dp, vertical = 30.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 18.dp)
         ) {
-            Card(
+            Spacer(Modifier.height(12.dp))
+
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(28.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier.padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "LeitorPDF",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Transforme páginas em áudio",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                IconButton(onClick = { searchMode = !searchMode }) {
+                    Icon(Icons.Default.Search, "Pesquisar")
+                }
+                IconButton(onClick = {}) {
+                    Icon(Icons.Default.Settings, "Configurações")
+                }
+            }
+
+            if (searchMode) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PictureAsPdf,
-                        contentDescription = null
-                    )
-
                     Text(
-                        text = "Leitor PDF",
-                        style = MaterialTheme.typography.headlineMedium
+                        "Pesquisa da biblioteca em breve",
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
 
-                    Text(
-                        text = "Leia ou ouça seus documentos no celular",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 22.dp)
-                    )
+            Spacer(Modifier.height(18.dp))
 
-                    Button(
-                        onClick = onOpenPdf,
-                        modifier = Modifier.fillMaxWidth()
+            Text(
+                "O que você quer ouvir?",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ImportTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.PictureAsPdf,
+                    title = "Importar PDF",
+                    subtitle = "Do celular",
+                    onClick = onOpenPdf
+                )
+                ImportTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.TextSnippet,
+                    title = "Texto",
+                    subtitle = "Colar conteúdo",
+                    onClick = {}
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ImportTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Link,
+                    title = "Página web",
+                    subtitle = "URL",
+                    onClick = {}
+                )
+                ImportTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.CameraAlt,
+                    title = "Escanear",
+                    subtitle = "Foto da página",
+                    onClick = {}
+                )
+            }
+
+            Spacer(Modifier.height(26.dp))
+
+            if (hasLastDocument && lastName != null) {
+                Text(
+                    "Continue ouvindo",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    onClick = onContinue
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.AutoStories, contentDescription = null)
-                        Text("  Abrir PDF")
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(ListenOrange),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Headphones,
+                                null,
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 14.dp)
+                        ) {
+                            Text(
+                                lastName,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "Continuar na página $lastPage",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(7.dp))
+                            LinearProgressIndicator(
+                                progress = { 0.18f },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = ListenOrange,
+                                trackColor = Color(0xFFE8E8E8)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(ListenOrange),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                null,
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
 
+            Spacer(Modifier.height(26.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Minha biblioteca",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onOpenPdf) {
+                    Text("Adicionar")
+                }
+            }
+
+            if (hasLastDocument && lastName != null) {
+                LibraryItem(
+                    title = lastName,
+                    subtitle = "PDF • pronto para ouvir",
+                    onClick = onContinue
+                )
+            } else {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.White
+                ) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.AutoStories,
+                            null,
+                            tint = ListenOrange,
+                            modifier = Modifier.size(38.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Sua biblioteca está vazia",
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Adicione um PDF para começar a leitura ou narração.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(
+                    listOf(
+                        "Leitura em segundo plano",
+                        "Velocidade ajustável",
+                        "Modo livro 3D",
+                        "Vozes do Android"
+                    )
+                ) { feature ->
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color.White
+                    ) {
+                        Text(
+                            feature,
+                            modifier = Modifier.padding(
+                                horizontal = 13.dp,
+                                vertical = 8.dp
+                            ),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportTile(
+    modifier: Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFE3D8)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    null,
+                    tint = ListenOrange,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(title, fontWeight = FontWeight.Bold)
             Text(
-                text = "Leitura confortável • Áudio em português • Offline",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 20.dp)
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun LibraryItem(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFFFFE3D8)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Description,
+                    null,
+                    tint = ListenOrange
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    title,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                Icons.Default.PlayArrow,
+                null,
+                tint = ListenOrange
+            )
+
+            IconButton(onClick = {}) {
+                Icon(Icons.Default.MoreHoriz, "Mais opções")
+            }
         }
     }
 }
