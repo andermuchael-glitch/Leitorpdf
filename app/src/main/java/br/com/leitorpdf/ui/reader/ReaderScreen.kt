@@ -402,7 +402,7 @@ fun ReaderScreen(
     ) { _ ->
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             if (reflowMode) {
-                ReflowReader(
+                BookReader3D(
                     pageText = state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty(),
                     highlightText = if (highlightEnabled) state.highlightText else "",
                     fontSize = reflowFontSize,
