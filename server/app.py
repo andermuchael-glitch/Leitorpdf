@@ -1,5 +1,8 @@
 import os
 import secrets
+import shutil
+import subprocess
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -131,15 +134,51 @@ async def create_voice(
                     break
                 output.write(chunk)
 
-        # soundfile validates WAV/FLAC/OGG. For compressed mobile formats,
-        # ffmpeg conversion can be added in deployment without changing this API.
+        # Normalize mobile recordings (M4A/MP3/AAC/etc.) to PCM WAV.
+        normalized = temporary
         try:
             data, sample_rate = sf.read(temporary, always_2d=False)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="Não foi possível ler esta gravação. Prefira WAV PCM para a primeira configuração.",
-            ) from exc
+        except Exception:
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Este servidor precisa do ffmpeg para converter M4A/MP3. Envie WAV PCM ou instale ffmpeg.",
+                )
+
+            converted = VOICE_DIR / f"{voice_id}.converted.wav"
+            try:
+                subprocess.run(
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-i",
+                        str(temporary),
+                        "-ac",
+                        "1",
+                        "-ar",
+                        "24000",
+                        "-sample_fmt",
+                        "s16",
+                        str(converted),
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    timeout=120,
+                )
+                normalized = converted
+                data, sample_rate = sf.read(normalized, always_2d=False)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception) as exc:
+                converted.unlink(missing_ok=True)
+                if isinstance(exc, HTTPException):
+                    raise
+                raise HTTPException(
+                    status_code=400,
+                    detail="Não foi possível converter esta gravação para WAV.",
+                ) from exc
+            finally:
+                converted.unlink(missing_ok=True)
 
         if sample_rate < 16000:
             raise HTTPException(
