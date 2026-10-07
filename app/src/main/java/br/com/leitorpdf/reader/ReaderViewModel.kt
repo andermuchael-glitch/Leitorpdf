@@ -237,7 +237,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun pauseNeural() {
-        app.startService(Intent(app, NeuralPlaybackService::class.java).setAction("androidx.media3.session.action.MEDIA3_PLAY_PAUSE"))
+        app.stopService(Intent(app, NeuralPlaybackService::class.java))
         _state.value = _state.value.copy(isSpeaking = false)
     }
 
