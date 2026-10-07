@@ -38,10 +38,16 @@ object AndroidTts {
     }
 
     fun findVoice(tts: TextToSpeech, name: String?): Voice? {
-        return tts.voices.firstOrNull { it.name == name }
-            ?: tts.voices
-                .filter { it.locale.language == "pt" }
-                .sortedBy { it.locale.country != "BR" }
+        val voices = tts.voices.orEmpty()
+            .filter { it.locale.language.equals("pt", ignoreCase = true) }
+
+        return voices.firstOrNull { it.name == name }
+            ?: voices
+                .sortedWith(
+                    compareBy<Voice> { it.isNetworkConnectionRequired }
+                        .thenBy { !it.locale.country.equals("BR", ignoreCase = true) }
+                        .thenByDescending { it.quality }
+                )
                 .firstOrNull()
     }
 
