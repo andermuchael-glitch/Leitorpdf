@@ -39,12 +39,15 @@ data class ReaderUiState(
     val exportingAudio: Boolean = false,
     val exportProgress: Int = 0,
     val exportMessage: String = "",
-    val error: String? = null
+    val error: String? = null,
+    val neuralVoiceReady: Boolean = false,
+    val neuralBusy: Boolean = false
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
     private val extractor = PdfTextExtractor(application)
     private val app = application
+    private val neural = NeuralTtsClient(application)
     private val prefs =
         application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
 
@@ -58,6 +61,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private lateinit var tts: TextToSpeech
 
     init {
+        _state.value = _state.value.copy(neuralVoiceReady = neural.voiceId() != null)
         tts = TextToSpeech(app) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 val voices = AndroidTts.portugueseVoices(tts)
@@ -163,6 +167,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun toggleSpeech() {
         val c = _state.value
+        if (neural.endpoint().isNotBlank() && neural.voiceId() != null) {
+            if (c.isSpeaking) { pauseNeural(); return }
+            playNeuralPage(c.selectedPage)
+            return
+        }
         if (!c.speechReady) {
             _state.value = c.copy(
                 error = "A voz do Android ainda não está pronta. Abra «Gerenciar vozes»."
@@ -182,6 +191,54 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         } else {
             startReadingFromPage(c.selectedPage)
         }
+    }
+
+    fun configureNeuralEndpoint(endpoint: String) { neural.setEndpoint(endpoint) }
+
+    fun neuralEndpoint(): String = neural.endpoint()
+
+    fun importNeuralVoice(uri: Uri) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(neuralBusy = true, error = null)
+            runCatching {
+                val file = java.io.File(app.cacheDir, "voice_reference.wav")
+                app.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } }
+                    ?: error("Não foi possível ler o áudio selecionado.")
+                neural.uploadVoice(file, "Minha voz")
+            }.onSuccess { id ->
+                neural.setVoiceId(id)
+                _state.value = _state.value.copy(neuralVoiceReady = true, neuralBusy = false, error = "Voz clonada configurada. Toque em ouvir.")
+            }.onFailure { e ->
+                _state.value = _state.value.copy(neuralBusy = false, error = e.message ?: "Falha ao enviar a voz.")
+            }
+        }
+    }
+
+    private fun playNeuralPage(page: Int) {
+        val text = _state.value.pageTexts.getOrNull(page - 1).orEmpty()
+        val voice = neural.voiceId() ?: return
+        if (text.isBlank()) { _state.value = _state.value.copy(error = "Esta página não possui texto."); return }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(neuralBusy = true, error = null)
+            runCatching {
+                val paths = NeuralTtsClient.chunkText(text).map { neural.synthesize(it, voice).absolutePath }
+                require(paths.isNotEmpty()) { "Não foi possível gerar o áudio." }
+                val intent = Intent(app, NeuralPlaybackService::class.java).apply {
+                    action = NeuralPlaybackService.ACTION_PLAY_FILES
+                    putStringArrayListExtra(NeuralPlaybackService.EXTRA_PATHS, ArrayList(paths))
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ContextCompat.startForegroundService(app, intent) else app.startService(intent)
+            }.onSuccess {
+                _state.value = _state.value.copy(isSpeaking = true, neuralBusy = false)
+            }.onFailure { e ->
+                _state.value = _state.value.copy(neuralBusy = false, isSpeaking = false, error = e.message ?: "Falha ao gerar a voz neural.")
+            }
+        }
+    }
+
+    private fun pauseNeural() {
+        app.startService(Intent(app, NeuralPlaybackService::class.java).setAction("androidx.media3.session.action.MEDIA3_PLAY_PAUSE"))
+        _state.value = _state.value.copy(isSpeaking = false)
     }
 
     fun startReadingFromPage(page: Int) {
