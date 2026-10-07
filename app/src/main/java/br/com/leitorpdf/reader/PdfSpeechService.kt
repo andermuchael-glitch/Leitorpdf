@@ -186,8 +186,17 @@ class PdfSpeechService : Service() {
             return false
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            engine.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+        }
         engine.setSpeechRate(rate)
         engine.setPitch(1f)
+        prefs.edit().remove("speech_error").apply()
         return true
     }
 
@@ -283,8 +292,14 @@ class PdfSpeechService : Service() {
             activeUtteranceId = id
             utteranceStarted = false
 
+            val params = Bundle().apply {
+                putString(
+                    TextToSpeech.Engine.KEY_PARAM_STREAM,
+                    AudioManager.STREAM_MUSIC.toString()
+                )
+            }
             val result = runCatching {
-                engine.speak(spokenText, TextToSpeech.QUEUE_FLUSH, Bundle(), id)
+                engine.speak(spokenText, TextToSpeech.QUEUE_FLUSH, params, id)
             }.getOrElse { TextToSpeech.ERROR }
 
             if (result == TextToSpeech.ERROR) {
