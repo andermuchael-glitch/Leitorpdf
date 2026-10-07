@@ -447,26 +447,51 @@ fun ReaderScreen(
             }
 
             Surface(
-                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
-                shape = RoundedCornerShape(50),
-                color = androidx.compose.ui.graphics.Color.Black.copy(alpha = .55f)
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 6.dp, start = 8.dp, end = 8.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Color.Black.copy(alpha = .48f)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Voltar", tint = androidx.compose.ui.graphics.Color.White)
+                Row(
+                    modifier = Modifier.height(40.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            "Voltar",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
+
                     Text(
-                        (if (reflowMode) "Leitura" else "Página") + " " +
-                            state.selectedPage + " / " + state.pageCount,
-                        color = androidx.compose.ui.graphics.Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(end = 8.dp)
+                        "P. " + state.selectedPage + "/" + state.pageCount,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 3.dp)
                     )
+
                     Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, "Opções", tint = androidx.compose.ui.graphics.Color.White)
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                "Opções",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
                         }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
                             DropdownMenuItem(
                                 text = { Text("Abrir outro PDF") },
                                 leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
@@ -535,48 +560,69 @@ fun ReaderScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(12.dp),
-                shape = RoundedCornerShape(28.dp),
-                color = Color.Black.copy(alpha = .82f)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.Black.copy(alpha = .84f)
             ) {
                 Row(
+                    modifier = Modifier
+                        .height(48.dp)
+                        .padding(horizontal = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
                     IconButton(
                         onClick = { viewModel.previousPage() },
-                        enabled = state.selectedPage > 1
+                        enabled = state.selectedPage > 1,
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             Icons.Default.ArrowBackIosNew,
                             "Página anterior",
-                            tint = if (state.selectedPage > 1) Color.White else Color.Gray
+                            tint = if (state.selectedPage > 1) Color.White else Color.Gray,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
+
                     IconButton(
                         onClick = { viewModel.toggleSpeech() },
-                        modifier = Modifier.size(58.dp),
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
                         enabled = state.text.isNotBlank()
                     ) {
                         Icon(
                             if (state.isSpeaking) Icons.Default.Pause else Icons.Default.PlayArrow,
                             if (state.isSpeaking) "Pausar" else "Ouvir",
                             tint = Color.White,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(25.dp)
                         )
                     }
+
                     IconButton(
                         onClick = { viewModel.nextPage() },
-                        enabled = state.selectedPage < state.pageCount
+                        enabled = state.selectedPage < state.pageCount,
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             Icons.Default.ArrowForwardIos,
                             "Próxima página",
-                            tint = if (state.selectedPage < state.pageCount) Color.White else Color.Gray
+                            tint = if (state.selectedPage < state.pageCount) Color.White else Color.Gray,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    IconButton(onClick = { showVoiceDialog = true }) {
-                        Icon(Icons.Default.Speed, "Velocidade", tint = Color.White)
+
+                    IconButton(
+                        onClick = { showVoiceDialog = true },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Speed,
+                            "Velocidade e voz",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 }
             }
