@@ -2,6 +2,8 @@ package br.com.leitorpdf.ui.reader
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
@@ -98,6 +100,11 @@ fun ReaderScreen(
     var pageCount by remember { mutableStateOf(0) }
     var showPageDialog by remember { mutableStateOf(false) }
     var showVoiceDialog by remember { mutableStateOf(false) }
+    var showNeuralDialog by remember { mutableStateOf(false) }
+    var neuralEndpoint by remember { mutableStateOf(viewModel.neuralEndpoint()) }
+    val voicePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked ->
+        picked?.let(viewModel::importNeuralVoice)
+    }
     var showAudioDialog by remember { mutableStateOf(false) }
     var showAppearanceDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -181,6 +188,51 @@ fun ReaderScreen(
             dismissButton = {
                 TextButton(onClick = { showPageDialog = false }) { Text("Cancelar") }
             }
+        )
+    }
+
+    if (showNeuralDialog) {
+        AlertDialog(
+            onDismissRequest = { showNeuralDialog = false },
+            title = { Text("Voz realista — Minha voz") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("O áudio é gerado por uma voz neural usando a sua gravação como referência.")
+                    OutlinedTextField(
+                        value = neuralEndpoint,
+                        onValueChange = { neuralEndpoint = it },
+                        label = { Text("Servidor de voz") },
+                        placeholder = { Text("https://seu-servidor:8000") },
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = {
+                            viewModel.configureNeuralEndpoint(neuralEndpoint)
+                            voicePicker.launch("audio/*")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = neuralEndpoint.isNotBlank() && !state.neuralBusy
+                    ) {
+                        Icon(Icons.Default.RecordVoiceOver, null)
+                        Text(if (state.neuralVoiceReady) "Trocar gravação da minha voz" else "Selecionar minha gravação")
+                    }
+                    if (state.neuralVoiceReady) {
+                        Text("✓ Voz neural configurada", color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (state.neuralBusy) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Preparando voz…")
+                    }
+                    Text("Use uma gravação limpa, sem música e com 10–30 segundos de fala contínua.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.configureNeuralEndpoint(neuralEndpoint)
+                    showNeuralDialog = false
+                }) { Text("Salvar") }
+            },
+            dismissButton = { TextButton(onClick = { showNeuralDialog = false }) { Text("Fechar") } }
         )
     }
 
@@ -528,6 +580,11 @@ fun ReaderScreen(
                                     showPageDialog = true
                                     menuExpanded = false
                                 }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Configurar voz real") },
+                                leadingIcon = { Icon(Icons.Default.RecordVoiceOver, null) },
+                                onClick = { showNeuralDialog = true; menuExpanded = false }
                             )
                             DropdownMenuItem(
                                 text = { Text("Escolher voz") },
