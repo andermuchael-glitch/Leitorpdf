@@ -146,7 +146,6 @@ class PdfSpeechService : Service() {
             override fun onStart(utteranceId: String?) {
                 val parsed = parseUtterance(utteranceId) ?: return
                 if (paused) return
-
                 page = parsed.first
                 sentence = parsed.second
                 saveProgress(true)
@@ -159,14 +158,16 @@ class PdfSpeechService : Service() {
 
                 val p = parsed.first
                 val s = parsed.second
+                if (p != page || s != sentence) return
+
                 val currentParts = parts(pages.getOrNull(p - 1).orEmpty())
-
-                if (s + 1 < currentParts.size) return
-
-                if (p < pages.size) {
+                if (s + 1 < currentParts.size) {
+                    sentence = s + 1
+                    scope.launch { speakCurrentUtterance(generation) }
+                } else if (p < pages.size) {
                     page = p + 1
                     sentence = 0
-                    scope.launch { queueCurrentPage(generation) }
+                    scope.launch { speakCurrentUtterance(generation) }
                 } else {
                     finishReading()
                 }
@@ -193,11 +194,12 @@ class PdfSpeechService : Service() {
         requestAudioFocus()
         configureTts()
         tts?.stop()
+        sentence = sentence.coerceAtLeast(0)
 
-        scope.launch { queueCurrentPage(g) }
+        scope.launch { speakCurrentUtterance(g) }
     }
 
-    private suspend fun queueCurrentPage(g: Long) {
+    private suspend fun speakCurrentUtterance(g: Long) {
         if (g != generation || paused || !ttsReady) return
 
         val currentParts = parts(pages.getOrNull(page - 1).orEmpty())
@@ -205,33 +207,29 @@ class PdfSpeechService : Service() {
             if (page < pages.size) {
                 page++
                 sentence = 0
-                queueCurrentPage(g)
+                speakCurrentUtterance(g)
             } else {
                 finishReading()
             }
             return
         }
 
-        val start = sentence.coerceIn(0, currentParts.lastIndex)
+        sentence = sentence.coerceIn(0, currentParts.lastIndex)
         val engine = tts ?: return
+        val spokenText = currentParts[sentence].first
 
         withContext(Dispatchers.Main.immediate) {
             if (g != generation || paused) return@withContext
 
-            engine.stop()
+            val result = engine.speak(
+                spokenText,
+                TextToSpeech.QUEUE_FLUSH,
+                Bundle(),
+                utteranceId(page, sentence)
+            )
 
-            for (index in start..currentParts.lastIndex) {
-                val result = engine.speak(
-                    currentParts[index].first,
-                    if (index == start) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
-                    Bundle(),
-                    utteranceId(page, index)
-                )
-
-                if (result == TextToSpeech.ERROR) {
-                    fail("Não foi possível iniciar a narração.")
-                    return@withContext
-                }
+            if (result == TextToSpeech.ERROR) {
+                fail("Não foi possível iniciar a narração. Verifique se há uma voz instalada no Android.")
             }
         }
     }
