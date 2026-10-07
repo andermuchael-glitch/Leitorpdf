@@ -195,6 +195,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun configureNeuralEndpoint(endpoint: String) { neural.setEndpoint(endpoint) }
 
+    fun configureNeuralToken(token: String) { neural.setToken(token) }
+
+    fun neuralToken(): String = neural.token()
+
     fun neuralEndpoint(): String = neural.endpoint()
 
     fun importNeuralVoice(uri: Uri) {
