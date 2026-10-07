@@ -64,7 +64,8 @@ fun BookReader3D(
     fontSize: Float,
     lineHeightMultiplier: Float,
     backgroundMode: Int,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPageChange: (Int) -> Unit = {}
 ) {
     val pagerState = rememberPagerState(
         initialPage = (selectedPage - 1).coerceIn(0, (pageTexts.size - 1).coerceAtLeast(0)),
@@ -80,10 +81,7 @@ fun BookReader3D(
 
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collectLatest { page ->
-            if (pageTexts.isNotEmpty()) {
-                // O ViewModel continua sendo a fonte oficial da página.
-                // A animação 3D só altera a seleção quando a virada terminou.
-            }
+            if (pageTexts.isNotEmpty()) onPageChange(page + 1)
         }
     }
 
