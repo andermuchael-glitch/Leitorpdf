@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 VOICE_DIR = Path(os.getenv("VOICE_DIR", "/data/voices"))
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", "/data/audio"))
 VOICE_DIR.mkdir(parents=True, exist_ok=True)
@@ -114,6 +114,7 @@ async def create_voice(
         "audio/aac",
         "audio/ogg",
         "audio/webm",
+        "application/octet-stream",
     }
 
     if content_type not in allowed:
@@ -169,7 +170,7 @@ async def create_voice(
                 )
                 normalized = converted
                 data, sample_rate = sf.read(normalized, always_2d=False)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception) as exc:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 converted.unlink(missing_ok=True)
                 if isinstance(exc, HTTPException):
                     raise
