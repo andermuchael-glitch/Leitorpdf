@@ -495,7 +495,7 @@ fun ReaderScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(if (reflowMode) "Voltar ao PDF original" else "Modo leitura (tipo EPUB)") },
+                                text = { Text(if (reflowMode) "Voltar ao PDF original" else "Modo Livro 3D") },
                                 leadingIcon = { Icon(Icons.Default.AutoStories, null) },
                                 onClick = {
                                     reflowMode = !reflowMode
@@ -503,7 +503,7 @@ fun ReaderScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Ajustes de leitura") },
+                                text = { Text("Ajustes do livro") },
                                 leadingIcon = { Icon(Icons.Default.Tune, null) },
                                 onClick = { showReadingSettings = true; menuExpanded = false }
                             )
