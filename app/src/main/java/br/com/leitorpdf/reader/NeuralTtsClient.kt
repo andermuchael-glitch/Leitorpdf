@@ -14,6 +14,8 @@ class NeuralTtsClient(private val context: Context) {
     fun endpoint() = prefs.getString("endpoint", "")?.trim()?.trimEnd('/').orEmpty()
     fun setEndpoint(value: String) = prefs.edit().putString("endpoint", value.trim().trimEnd('/')).apply()
     fun voiceId() = prefs.getString("voice_id", null)
+    fun token() = prefs.getString("token", "")?.trim().orEmpty()
+    fun setToken(value: String) = prefs.edit().putString("token", value.trim()).apply()
     fun setVoiceId(value: String) = prefs.edit().putString("voice_id", value).apply()
 
     suspend fun health(): Boolean = withContext(Dispatchers.IO) {
@@ -30,6 +32,7 @@ class NeuralTtsClient(private val context: Context) {
         c.requestMethod = "POST"; c.doOutput = true
         c.connectTimeout = 20_000; c.readTimeout = 120_000
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        token().takeIf { it.isNotBlank() }?.let { c.setRequestProperty("Authorization", "Bearer $it") }
         c.outputStream.use { out ->
             fun line(s: String) = out.write((s + "\r\n").toByteArray())
             line("--$boundary")
@@ -57,6 +60,7 @@ class NeuralTtsClient(private val context: Context) {
         c.requestMethod = "POST"; c.doOutput = true
         c.connectTimeout = 20_000; c.readTimeout = 180_000
         c.setRequestProperty("Content-Type", "application/json")
+        token().takeIf { it.isNotBlank() }?.let { c.setRequestProperty("Authorization", "Bearer $it") }
         c.outputStream.use { it.write(payload.toByteArray()) }
         val body = (if (c.responseCode in 200..299) c.inputStream else c.errorStream)
             ?.bufferedReader()?.readText().orEmpty()
@@ -65,6 +69,7 @@ class NeuralTtsClient(private val context: Context) {
         val out = File(context.cacheDir, "neural_${UUID.randomUUID()}.wav")
         val d = URL("$base/audio/$audioId").openConnection() as HttpURLConnection
         d.connectTimeout = 20_000; d.readTimeout = 120_000
+        token().takeIf { it.isNotBlank() }?.let { d.setRequestProperty("Authorization", "Bearer $it") }
         if (d.responseCode !in 200..299) error("Falha ao baixar áudio: HTTP ${d.responseCode}")
         d.inputStream.use { input -> out.outputStream().use { input.copyTo(it) } }
         out
