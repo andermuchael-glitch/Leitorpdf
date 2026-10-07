@@ -2,6 +2,7 @@ package br.com.leitorpdf.reader
 
 import android.app.PendingIntent
 import android.content.Intent
+import br.com.leitorpdf.MainActivity
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
