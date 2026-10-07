@@ -247,17 +247,17 @@ fun ReaderScreen(
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        "As vozes disponíveis são as que estão instaladas no celular. Você pode baixar outras vozes nas configurações do Android.",
+                        "A narração principal usa voz neural realista. Configure uma gravação de referência para gerar a voz pelo servidor neural.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Button(
                         onClick = {
-                            context.startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+                            showVoiceDialog = false; showNeuralDialog = true
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.SettingsVoice, null)
-                        Text("  Gerenciar / baixar vozes")
+                        Text("  Configurar voz neural")
                     }
                     Divider()
                     if (state.voices.isEmpty()) {
