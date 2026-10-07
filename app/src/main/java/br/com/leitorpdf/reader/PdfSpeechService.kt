@@ -98,24 +98,31 @@ class PdfSpeechService : Service() {
     }
 
     override fun onStartCommand(i: Intent?, flags: Int, startId: Int): Int {
-        when (i?.action) {
+        try {
+            when (i?.action) {
             ACTION_PAUSE -> pause()
             ACTION_STOP -> stopReading()
             ACTION_PLAY -> {
                 readExtras(i)
                 paused = false
-                foreground()
-                if (ttsReady) beginPlayback() else pendingPlay = true
+                if (foreground()) {
+                    if (ttsReady) beginPlayback() else pendingPlay = true
+                }
             }
             ACTION_EXPORT_PAGE -> {
                 readExtras(i)
                 paused = true
                 tts?.stop()
-                foreground()
-                if (ttsReady) exportPage() else pendingExport = true
+                if (foreground()) {
+                    if (ttsReady) exportPage() else pendingExport = true
+                }
             }
+            }
+        } catch (t: Throwable) {
+            // Não deixar uma falha do mecanismo TTS/foreground derrubar o processo do leitor.
+            fail("Não foi possível iniciar o áudio neste aparelho. Verifique o mecanismo Texto para fala e tente novamente.")
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun readExtras(i: Intent) {
@@ -688,18 +695,23 @@ class PdfSpeechService : Service() {
         audioFocusRequest = null
     }
 
-    private fun foreground() {
-        val notification = build(false, "Leitor PDF")
-
-        if (Build.VERSION.SDK_INT >= 29) {
-            ServiceCompat.startForeground(
-                this,
-                ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            ServiceCompat.startForeground(this, ID, notification, 0)
+    private fun foreground(): Boolean {
+        return try {
+            val notification = build(false, "Leitor PDF")
+            if (Build.VERSION.SDK_INT >= 29) {
+                ServiceCompat.startForeground(
+                    this,
+                    ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                ServiceCompat.startForeground(this, ID, notification, 0)
+            }
+            true
+        } catch (t: Throwable) {
+            fail("O Android bloqueou o serviço de áudio. Verifique as permissões de reprodução em segundo plano e tente novamente.")
+            false
         }
     }
 
