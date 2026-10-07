@@ -129,16 +129,36 @@ class PdfSpeechService : Service() {
         sentence = i.getIntExtra(EXTRA_CHUNK, 0).coerceAtLeast(0)
     }
 
-    private fun configureTts() {
-        val engine = tts ?: return
+    private fun configureTts(): Boolean {
+        val engine = tts ?: return false
+
+        val languageResult = runCatching {
+            engine.setLanguage(Locale("pt", "BR"))
+        }.getOrDefault(TextToSpeech.ERROR)
+
+        if (
+            languageResult == TextToSpeech.LANG_MISSING_DATA ||
+            languageResult == TextToSpeech.LANG_NOT_SUPPORTED
+        ) {
+            fail("A voz em português não está instalada. Abra as configurações de Texto para fala e baixe uma voz em português.")
+            return false
+        }
+
         val selected = AndroidTts.findVoice(engine, voiceName)
         if (selected != null) {
-            runCatching { engine.voice = selected }
-        } else {
-            runCatching { engine.language = Locale("pt", "BR") }
+            val applied = runCatching {
+                engine.voice = selected
+                true
+            }.getOrDefault(false)
+
+            if (!applied) {
+                runCatching { engine.setLanguage(Locale("pt", "BR")) }
+            }
         }
+
         engine.setSpeechRate(rate)
         engine.setPitch(1f)
+        return true
     }
 
     private fun installPlaybackListener() {
@@ -192,7 +212,7 @@ class PdfSpeechService : Service() {
         val g = ++generation
         paused = false
         requestAudioFocus()
-        configureTts()
+        if (!configureTts()) return
         tts?.stop()
         sentence = sentence.coerceAtLeast(0)
 
