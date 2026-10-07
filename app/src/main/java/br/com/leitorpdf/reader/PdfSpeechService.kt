@@ -147,43 +147,47 @@ class PdfSpeechService : Service() {
             return false
         }
 
-        val selected = AndroidTts.findVoice(engine, voiceName)
-            ?: portuguese.sortedWith(
-                compareBy<android.speech.tts.Voice> { it.isNetworkConnectionRequired }
-                    .thenBy { !it.locale.country.equals("BR", ignoreCase = true) }
-                    .thenByDescending { it.quality }
-            ).firstOrNull()
+        val fallback = portuguese.sortedWith(
+            compareBy<android.speech.tts.Voice> { it.isNetworkConnectionRequired }
+                .thenBy { !it.locale.country.equals("BR", ignoreCase = true) }
+                .thenByDescending { it.quality }
+        ).firstOrNull()
 
+        val selected = AndroidTts.findVoice(engine, voiceName) ?: fallback
         if (selected == null) {
             fail("Não foi possível encontrar uma voz em português compatível com este aparelho.")
             return false
         }
 
+        // Primeiro prepara o idioma; depois aplica explicitamente a voz escolhida.
+        // Alguns mecanismos TTS trocam a voz quando setLanguage() é chamado.
+        val languageResult = runCatching {
+            engine.setLanguage(Locale("pt", "BR"))
+        }.getOrDefault(TextToSpeech.ERROR)
+
+        if (languageResult == TextToSpeech.LANG_MISSING_DATA) {
+            fail("Os dados de português não estão instalados. Baixe uma voz em português nas configurações de Texto para fala.")
+            return false
+        }
+        if (languageResult == TextToSpeech.LANG_NOT_SUPPORTED || languageResult == TextToSpeech.ERROR) {
+            fail("O mecanismo de Texto para fala não oferece português neste aparelho.")
+            return false
+        }
+
         val voiceResult = runCatching { engine.setVoice(selected) }.getOrElse { TextToSpeech.ERROR }
         if (voiceResult == TextToSpeech.ERROR) {
-            fail("A voz selecionada não pôde ser carregada. Escolha outra voz ou baixe novamente os dados de voz.")
-            return false
-        }
-        if (runCatching { engine.voice?.name }.getOrNull() != selected.name) {
-            fail("O Android não conseguiu ativar a voz selecionada. Escolha outra voz em «Gerenciar / baixar vozes».")
-            return false
-        }
-
-        val languageResult = runCatching { engine.setLanguage(selected.locale) }.getOrDefault(TextToSpeech.ERROR)
-        if (languageResult == TextToSpeech.LANG_MISSING_DATA) {
-            fail("Os dados da voz selecionada não estão instalados. Baixe essa voz nas configurações de Texto para fala.")
-            return false
-        }
-        if (languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-            fail("A voz selecionada não é compatível com o mecanismo TTS atual. Escolha outra voz.")
-            return false
-        }
-
-        // setLanguage pode trocar a voz pelo padrão; reaplica a voz escolhida.
-        val reapplied = runCatching { engine.setVoice(selected) }.getOrElse { TextToSpeech.ERROR }
-        if (reapplied == TextToSpeech.ERROR || engine.voice?.name != selected.name) {
-            fail("A voz selecionada não pôde ser ativada pelo mecanismo TTS. Tente outra voz.")
-            return false
+            // Se uma voz específica falhar, não bloqueia a leitura: usa a voz
+            // portuguesa instalada mais confiável disponível no aparelho.
+            if (fallback != null && fallback.name != selected.name &&
+                runCatching { engine.setVoice(fallback) }.getOrDefault(TextToSpeech.ERROR) == TextToSpeech.SUCCESS
+            ) {
+                voiceName = fallback.name
+            } else {
+                fail("A voz selecionada não pôde ser carregada. Escolha outra voz instalada.")
+                return false
+            }
+        } else {
+            voiceName = selected.name
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -256,8 +260,11 @@ class PdfSpeechService : Service() {
 
         val g = ++generation
         paused = false
-        requestAudioFocus()
+
+        // O serviço já foi promovido a foreground em onStartCommand antes
+        // de chegar aqui. Isso mantém a reprodução compatível com Android 15+.
         if (!configureTts()) return
+        requestAudioFocus()
         tts?.stop()
         sentence = sentence.coerceAtLeast(0)
 
@@ -292,27 +299,49 @@ class PdfSpeechService : Service() {
             activeUtteranceId = id
             utteranceStarted = false
 
-            val params = Bundle().apply {
-                putString(
-                    TextToSpeech.Engine.KEY_PARAM_STREAM,
-                    AudioManager.STREAM_MUSIC.toString()
-                )
-            }
+            // O mecanismo recebe os atributos de áudio definidos no TTS.
+            // Não forçamos KEY_PARAM_STREAM, pois alguns engines modernos
+            // ignoram ou tratam esse parâmetro de forma incompatível.
             val result = runCatching {
-                engine.speak(spokenText, TextToSpeech.QUEUE_FLUSH, params, id)
+                engine.speak(spokenText, TextToSpeech.QUEUE_FLUSH, null, id)
             }.getOrElse { TextToSpeech.ERROR }
 
             if (result == TextToSpeech.ERROR) {
-                fail("Não foi possível iniciar a narração. A voz pode estar indisponível ou os dados de voz podem não estar instalados.")
-                return@withContext
+                // Última tentativa: voz portuguesa instalada padrão do aparelho.
+                val fallback = runCatching {
+                    tts?.voices.orEmpty()
+                        .filter { it.locale.language.equals("pt", ignoreCase = true) }
+                        .sortedWith(
+                            compareBy<android.speech.tts.Voice> { it.isNetworkConnectionRequired }
+                                .thenBy { !it.locale.country.equals("BR", ignoreCase = true) }
+                                .thenByDescending { it.quality }
+                        )
+                        .firstOrNull()
+                }.getOrNull()
+
+                if (fallback != null &&
+                    runCatching { engine.setVoice(fallback) }.getOrDefault(TextToSpeech.ERROR) == TextToSpeech.SUCCESS
+                ) {
+                    voiceName = fallback.name
+                    val retry = runCatching {
+                        engine.speak(spokenText, TextToSpeech.QUEUE_FLUSH, null, id)
+                    }.getOrElse { TextToSpeech.ERROR }
+                    if (retry == TextToSpeech.ERROR) {
+                        fail("Não foi possível iniciar a narração. Instale uma voz em português e tente novamente.")
+                        return@withContext
+                    }
+                } else {
+                    fail("Não foi possível iniciar a narração. Instale uma voz em português e tente novamente.")
+                    return@withContext
+                }
             }
 
             // speak() é assíncrono; onStart confirma que o áudio realmente começou.
             scope.launch {
-                kotlinx.coroutines.delay(7000)
+                kotlinx.coroutines.delay(3000)
                 if (g == generation && !paused && activeUtteranceId == id &&
                     !utteranceStarted && tts?.isSpeaking != true) {
-                    fail("O TTS aceitou a narração, mas não iniciou o áudio. Verifique o volume de mídia e os dados da voz selecionada.")
+                    fail("O mecanismo TTS aceitou o texto, mas não iniciou o áudio. Verifique o volume de mídia e a voz instalada.")
                 }
             }
         }
