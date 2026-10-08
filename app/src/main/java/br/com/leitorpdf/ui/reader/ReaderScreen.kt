@@ -26,6 +26,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +52,7 @@ fun ReaderScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val readerAi = remember { ReaderAiClient(context) }
 
@@ -144,11 +147,13 @@ fun ReaderScreen(
         activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).hide(WindowInsetsCompat.Type.systemBars()) }
     }
     LaunchedEffect(state.selectedPage) { viewModel.recordHistory() }
-    LaunchedEffect(uri) {
+    LaunchedEffect(uri, lifecycleOwner) {
         val stats = ReadingStatsStore(context)
         while (true) {
             delay(10000)
-            stats.addReadingMs(10000L, uri.toString(), fileName)
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                stats.addReadingMs(10000L, uri.toString(), fileName)
+            }
         }
     }
     LaunchedEffect(state.selectedPage, readingMode) {

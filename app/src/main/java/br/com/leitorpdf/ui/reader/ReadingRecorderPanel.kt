@@ -42,6 +42,7 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
     var musicUri by remember { mutableStateOf<Uri?>(null) }
     var musicName by remember { mutableStateOf("") }
     var musicVolume by remember { mutableFloatStateOf(.12f) }
+    var quality by remember { mutableIntStateOf(96000) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingId by remember { mutableStateOf<Long?>(null) }
     var mixing by remember { mutableStateOf(false) }
@@ -89,6 +90,7 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
             .putExtra(ReadingRecorderService.EXTRA_START_PAGE, page)
             .putExtra(ReadingRecorderService.EXTRA_MUSIC, musicUri?.toString())
             .putExtra(ReadingRecorderService.EXTRA_MUSIC_VOLUME, musicVolume)
+            .putExtra(ReadingRecorderService.EXTRA_BITRATE, quality)
         if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
         showStart = false
     }
@@ -123,6 +125,12 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
                         Icon(Icons.Default.MusicNote, null)
                         TextButton(onClick = { musicPicker.launch(arrayOf("audio/*")) }) {
                             Text(if (musicName.isBlank()) "Escolher música de fundo" else musicName)
+                        }
+                    }
+                    Text("Qualidade do áudio")
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(64000 to "Econômica", 96000 to "Normal", 128000 to "Alta").forEach { (rate, label) ->
+                            FilterChip(selected = quality == rate, onClick = { quality = rate }, label = { Text(label) })
                         }
                     }
                     Text("Volume da música: " + (musicVolume * 100).toInt() + "%")

@@ -25,6 +25,7 @@ class ReadingRecorderService : Service() {
         const val EXTRA_START_PAGE = "start_page"
         const val EXTRA_MUSIC = "music_uri"
         const val EXTRA_MUSIC_VOLUME = "music_volume"
+        const val EXTRA_BITRATE = "bitrate"
         const val EXTRA_END_PAGE = "end_page"
         const val NOTIFICATION_ID = 3651
         const val CHANNEL_ID = "reading_recording"
@@ -41,6 +42,7 @@ class ReadingRecorderService : Service() {
     private var startPage = 1
     private var musicUri: String? = null
     private var musicVolume = .12f
+    private var bitrate = 96000
     private var endPage = 1
     private val store by lazy { ReadingRecorderStore(applicationContext) }
 
@@ -72,7 +74,7 @@ class ReadingRecorderService : Service() {
                 setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(96000)
+                setAudioEncodingBitRate(bitrate)
                 setAudioSamplingRate(44100)
                 setAudioChannels(1)
                 setOutputFile(file.absolutePath)
@@ -89,6 +91,7 @@ class ReadingRecorderService : Service() {
             endPage = startPage
             musicUri = intent.getStringExtra(EXTRA_MUSIC)
             musicVolume = intent.getFloatExtra(EXTRA_MUSIC_VOLUME, .12f).coerceIn(0f, .4f)
+            bitrate = intent.getIntExtra(EXTRA_BITRATE, 96000).coerceIn(64000, 128000)
             startMusic()
             saveState(false)
         } catch (_: Exception) {
