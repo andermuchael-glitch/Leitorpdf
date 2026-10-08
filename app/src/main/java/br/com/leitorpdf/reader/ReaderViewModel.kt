@@ -160,6 +160,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun twoPageMode(): Boolean = experience.twoPages(_state.value.uri)
 
+    fun readingAppearance(): ReadingAppearance = experience.readingAppearance(_state.value.uri)
+
+    fun saveReadingAppearance(appearance: ReadingAppearance) {
+        val uri = _state.value.uri
+        if (uri.isNotBlank()) experience.setReadingAppearance(uri, appearance)
+    }
+
     fun history(): List<ReadingHistoryItem> = experience.history()
 
     private fun persistPage(page: Int) {
