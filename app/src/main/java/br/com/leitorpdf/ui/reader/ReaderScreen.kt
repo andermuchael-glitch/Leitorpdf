@@ -35,7 +35,6 @@ import br.com.leitorpdf.data.pdf.PdfPageView
 import br.com.leitorpdf.reader.ReaderViewModel
 import br.com.leitorpdf.reader.ReaderAiClient
 import br.com.leitorpdf.reader.ReadingAppearance
-import br.com.leitorpdf.reader.ReadingAppearance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -131,13 +130,7 @@ fun ReaderScreen(
             pdfView.setFilterMode(filterMode)
             pdfView.setBrightness(brightness)
         }
-        val appearance = viewModel.readingAppearance()
-        fontSize = appearance.fontSize
-        lineHeight = appearance.lineHeight
-        backgroundMode = appearance.backgroundMode
-        filterMode = appearance.filterMode
-        brightness = appearance.brightness
-        readingMode = appearance.readingMode
+
         if (readingMode == 0) {
             pdfView.setFilterMode(filterMode)
             pdfView.setBrightness(brightness)
