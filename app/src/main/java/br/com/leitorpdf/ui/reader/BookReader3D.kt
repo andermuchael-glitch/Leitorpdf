@@ -72,7 +72,7 @@ private fun BookPage(
             highlights.forEach { mark ->
                 val index = cleaned.indexOf(mark.text, ignoreCase = true)
                 if (index >= 0) addStyle(
-                    SpanStyle(background = Color(0xFFFFD54F), color = Color.Black),
+                    SpanStyle(background = when (mark.color) { "green" -> Color(0xFF81C784); "blue" -> Color(0xFF64B5F6); "pink" -> Color(0xFFF48FB1); else -> Color(0xFFFFD54F) }, color = Color.Black),
                     index, (index + mark.text.length).coerceAtMost(cleaned.length)
                 )
             }
