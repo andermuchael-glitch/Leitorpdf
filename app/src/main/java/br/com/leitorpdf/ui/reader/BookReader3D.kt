@@ -91,6 +91,9 @@ private fun BookPage(
         1 -> Color(0xFF3E3425)
         2 -> Color(0xFFE9E9EC)
         3 -> Color.White
+        4 -> Color(0xFF243447)
+        5 -> Color(0xFF243424)
+        6 -> Color(0xFF3D2A2E)
         else -> Color(0xFF252525)
     }
     Box(
@@ -156,6 +159,9 @@ fun BookReader3D(
         1 -> Color(0xFFE8D8B3)
         2 -> Color(0xFF17181B)
         3 -> Color.Black
+        4 -> Color(0xFFDDEAF6)
+        5 -> Color(0xFFDDEDDD)
+        6 -> Color(0xFFF3DDE2)
         else -> Color(0xFFE8E8EC)
     }
 
