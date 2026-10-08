@@ -35,6 +35,7 @@ import br.com.leitorpdf.data.pdf.PdfPageView
 import br.com.leitorpdf.reader.ReaderViewModel
 import br.com.leitorpdf.reader.ReaderAiClient
 import br.com.leitorpdf.reader.ReadingAppearance
+import br.com.leitorpdf.reader.ReadingAppearance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -119,6 +120,17 @@ fun ReaderScreen(
         zoom = options.second
         margin = options.third
         twoPages = viewModel.twoPageMode()
+        val appearance = viewModel.readingAppearance()
+        fontSize = appearance.fontSize
+        lineHeight = appearance.lineHeight
+        backgroundMode = appearance.backgroundMode
+        filterMode = appearance.filterMode
+        brightness = appearance.brightness
+        readingMode = appearance.readingMode
+        if (readingMode == 0) {
+            pdfView.setFilterMode(filterMode)
+            pdfView.setBrightness(brightness)
+        }
         val appearance = viewModel.readingAppearance()
         fontSize = appearance.fontSize
         lineHeight = appearance.lineHeight
@@ -289,7 +301,7 @@ fun ReaderScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         listOf("Normal", "Sépia", "Cinza", "Invertido").forEachIndexed { i, label ->
                             OutlinedButton(
-                                onClick = { filterMode = i; pdfView.setFilterMode(i); persistAppearance() },
+                                onClick = { filterMode = i; pdfView.setFilterMode(i); persistAppearance(); persistAppearance() },
                                 Modifier.weight(1f)
                             ) { Text(label, fontSize = 10.sp) }
                         }
@@ -300,6 +312,7 @@ fun ReaderScreen(
                         {
                             brightness = it
                             pdfView.setBrightness(it)
+                            persistAppearance()
                         },
                         valueRange = -0.45f..0.45f
                     )
