@@ -140,7 +140,6 @@ private fun LeitorPdfApp(
             fileName = selectedName,
             viewModel = readerViewModel,
             onBack = {
-                readerViewModel.stopSpeech()
                 selectedUri = null
             },
             onOpenAnotherPdf = {
