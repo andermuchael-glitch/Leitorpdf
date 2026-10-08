@@ -63,7 +63,7 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
     }
     DisposableEffect(Unit) { onDispose { player?.release() } }
 
-    fun send(action: String) = context.startService(Intent(context, ReadingRecorderService::class.java).setAction(action))
+    fun send(action: String) = context.startService(Intent(context, ReadingRecorderService::class.java).setAction(action).apply { if (action == ReadingRecorderService.ACTION_STOP) putExtra(ReadingRecorderService.EXTRA_END_PAGE, page) })
     fun start() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
