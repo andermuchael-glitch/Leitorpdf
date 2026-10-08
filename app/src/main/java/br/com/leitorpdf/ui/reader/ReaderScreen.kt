@@ -9,6 +9,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,12 +32,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import br.com.leitorpdf.data.pdf.PdfPageView
-import br.com.leitorpdf.reader.AiImageClient
 import br.com.leitorpdf.reader.ReaderViewModel
 import br.com.leitorpdf.reader.ReaderAiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.io.File
 
 @Composable
 fun ReaderScreen(
@@ -49,7 +48,6 @@ fun ReaderScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val ai = remember { AiImageClient(context) }
     val readerAi = remember { ReaderAiClient(context) }
 
     var controlsVisible by remember { mutableStateOf(false) }
@@ -61,10 +59,7 @@ fun ReaderScreen(
     var showMarksDialog by remember { mutableStateOf(false) }
     var showReadingSettings by remember { mutableStateOf(false) }
     var showAppearance by remember { mutableStateOf(false) }
-    var showAiDialog by remember { mutableStateOf(false) }
     var showAiSettings by remember { mutableStateOf(false) }
-    var aiEndpoint by remember { mutableStateOf(ai.endpoint()) }
-    var aiToken by remember { mutableStateOf(ai.token()) }
     var aiBusy by remember { mutableStateOf(false) }
     var aiError by remember { mutableStateOf<String?>(null) }
     var fontSize by remember { mutableStateOf(20f) }
@@ -133,6 +128,7 @@ fun ReaderScreen(
         clipboard.setPrimaryClip(ClipData.newPlainText("LeitorPDF", text))
     }
 
+    /* image generation intentionally disabled for now
     fun openImage(file: File) {
         val contentUri = FileProvider.getUriForFile(
             context,
@@ -145,6 +141,7 @@ fun ReaderScreen(
         })
     }
 
+    */ 
     if (showPageDialog) {
         AlertDialog(
             onDismissRequest = { showPageDialog = false },
@@ -231,11 +228,11 @@ fun ReaderScreen(
                     }
                     Text("Fundo")
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("Claro", "Sépia", "Escuro", "Preto").forEachIndexed { i, label ->
+                        listOf("Claro", "Sépia", "Escuro", "Preto", "Azul", "Verde", "Rosa").forEachIndexed { i, label ->
                             OutlinedButton(
                                 onClick = { backgroundMode = i },
                                 Modifier.weight(1f)
-                            ) { Text(label, fontSize = 10.sp) }
+                            ) { Text(label, fontSize = 9.sp) }
                         }
                     }
                 }
@@ -363,73 +360,15 @@ fun ReaderScreen(
         )
     }
 
-    if (showAiDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!aiBusy) showAiDialog = false },
-            title = { Text("Criar imagem com IA") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("A IA transforma o trecho selecionado em uma ilustração.")
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            selectedText,
-                            Modifier.padding(12.dp),
-                            maxLines = 8,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    aiError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    if (aiBusy) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text("Gerando imagem…")
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    enabled = selectedText.isNotBlank() && !aiBusy,
-                    onClick = {
-                        aiBusy = true
-                        aiError = null
-                        scope.launch(Dispatchers.IO) {
-                            runCatching {
-                                ai.generateImage(
-                                    "Crie uma ilustração cinematográfica, respeitosa e fiel ao sentido deste trecho. Não escreva palavras na imagem: " +
-                                        selectedText
-                                )
-                            }.onSuccess { file ->
-                                launch(Dispatchers.Main) {
-                                    aiBusy = false
-                                    showAiDialog = false
-                                    openImage(file)
-                                }
-                            }.onFailure { e ->
-                                launch(Dispatchers.Main) {
-                                    aiBusy = false
-                                    aiError = e.message ?: "Falha ao gerar imagem."
-                                }
-                            }
-                        }
-                    }
-                ) { Text("Gerar") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { copyText(selectedText) }) { Text("Copiar") }
-                    TextButton(onClick = {
-                        showAiDialog = false
-                        showAiSettings = true
-                    }) { Text("Configurar") }
-                }
-            }
-        )
-    }
-
     Scaffold(containerColor = Color.Black) {
-        Box(Modifier.fillMaxSize().background(Color.Black).readerLongPress { controlsVisible = !controlsVisible }) {
+        Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+            detectTapGestures(
+                onLongPress = {
+                    controlsVisible = true
+                    showReadingSettings = true
+                }
+            )
+        }) {
             when (readingMode) {
                 1 -> ReflowReader(
                     pageText = state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty(),
@@ -452,6 +391,10 @@ fun ReaderScreen(
                     fontSize = fontSize,
                     lineHeightMultiplier = lineHeight,
                     backgroundMode = backgroundMode,
+                    twoPages = twoPages,
+                    concentration = concentration,
+                    zoom = zoom,
+                    margin = margin,
                     modifier = Modifier.fillMaxSize(),
                     onPageChange = { page ->
                         if (page != state.selectedPage) viewModel.setSelectedPage(page)
@@ -561,15 +504,6 @@ fun ReaderScreen(
                                     text = { Text("Aparência do PDF") },
                                     leadingIcon = { Icon(Icons.Default.Brightness6, null) },
                                     onClick = { showAppearance = true; menuExpanded = false }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("IA • criar imagem") },
-                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
-                                    onClick = {
-                                        selectedText = state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty().take(4000)
-                                        showAiDialog = true
-                                        menuExpanded = false
-                                    }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Configurar IA") },
