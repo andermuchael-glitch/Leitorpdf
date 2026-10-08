@@ -27,10 +27,9 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -310,7 +309,7 @@ private fun HomeScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.Headphones,
+                                Icons.Default.AutoStories,
                                 null,
                                 tint = Color.White,
                                 modifier = Modifier.size(30.dp)
@@ -350,7 +349,7 @@ private fun HomeScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.PlayArrow,
+                                Icons.Default.ArrowForward,
                                 null,
                                 tint = Color.White
                             )
@@ -419,10 +418,10 @@ private fun HomeScreen(
             ) {
                 items(
                     listOf(
-                        "Leitura em segundo plano",
-                        "Velocidade ajustável",
                         "Modo livro 3D",
-                        "Vozes do Android"
+                        "Marcações coloridas",
+                        "IA para leitura",
+                        "Modo concentração"
                     )
                 ) { feature ->
                     Surface(
