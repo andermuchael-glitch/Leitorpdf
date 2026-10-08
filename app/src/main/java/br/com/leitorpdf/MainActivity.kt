@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,19 +50,26 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import android.graphics.BitmapFactory
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.leitorpdf.reader.ReaderViewModel
+import br.com.leitorpdf.reader.PdfLibraryStore
+import br.com.leitorpdf.reader.LibraryBook
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import br.com.leitorpdf.ui.reader.ReaderScreen
 import br.com.leitorpdf.ui.theme.LeitorPdfTheme
 
@@ -119,6 +127,31 @@ private fun LeitorPdfApp(
     }
 
     val readerViewModel: ReaderViewModel = viewModel()
+    val libraryStore = remember { PdfLibraryStore(activity) }
+    var libraryBooks by remember { mutableStateOf(libraryStore.books()) }
+
+    LaunchedEffect(selectedUri) {
+        val uri = selectedUri ?: return@LaunchedEffect
+        val rawName = selectedName
+        val metadata = withContext(Dispatchers.IO) {
+            val title = PdfLibraryStore.detectTitle(activity, uri, rawName)
+            val cover = PdfLibraryStore.createCover(activity, uri, activity.cacheDir)
+            title to cover
+        }
+        val book = LibraryBook(
+            uri = uri.toString(),
+            title = metadata.first,
+            coverPath = metadata.second,
+            page = prefs.getInt("page", 1),
+            updatedAt = System.currentTimeMillis()
+        )
+        libraryStore.addOrUpdate(book)
+        libraryBooks = libraryStore.books()
+        if (selectedName != metadata.first) {
+            selectedName = metadata.first
+            prefs.edit().putString("last_name", metadata.first).apply()
+        }
+    }
 
     var showTextDialog by remember { mutableStateOf(false) }
     var showWebDialog by remember { mutableStateOf(false) }
@@ -191,9 +224,11 @@ private fun LeitorPdfApp(
         )
     } else {
         HomeScreen(
-            lastName = prefs.getString("last_name", null),
-            lastPage = prefs.getInt("page", 1),
-            hasLastDocument = prefs.getString("last_uri", null) != null,
+            lastName = libraryBooks.firstOrNull()?.title ?: prefs.getString("last_name", null),
+            lastPage = libraryBooks.firstOrNull()?.page ?: prefs.getInt("page", 1),
+            lastCoverPath = libraryBooks.firstOrNull()?.coverPath,
+            libraryBooks = libraryBooks,
+            hasLastDocument = libraryBooks.isNotEmpty() || prefs.getString("last_uri", null) != null,
             onOpenPdf = { picker.launch(arrayOf("application/pdf")) },
             onOpenText = { showTextDialog = true },
             onOpenWeb = { showWebDialog = true },
@@ -220,6 +255,8 @@ private fun HomeScreen(
     onDarkThemeChange: (Boolean) -> Unit,
     lastPage: Int,
     hasLastDocument: Boolean,
+    lastCoverPath: String?,
+    libraryBooks: List<LibraryBook>,
     onOpenPdf: () -> Unit,
     onOpenText: () -> Unit,
     onOpenWeb: () -> Unit,
@@ -356,7 +393,13 @@ private fun HomeScreen(
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
+                        CoverThumbnail(
+                            path = lastCoverPath,
+                            modifier = Modifier
+                                .size(58.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                        )
+                        /* Box(
                             modifier = Modifier
                                 .size(58.dp)
                                 .clip(RoundedCornerShape(16.dp))
@@ -371,6 +414,7 @@ private fun HomeScreen(
                             )
                         }
 
+                        */
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -430,12 +474,17 @@ private fun HomeScreen(
                 }
             }
 
-            if (hasLastDocument && lastName != null) {
-                LibraryItem(
-                    title = lastName,
-                    subtitle = "PDF • leitura inteligente",
-                    onClick = onContinue
-                )
+            if (libraryBooks.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    libraryBooks.take(8).forEach { book ->
+                        LibraryItem(
+                            title = book.title,
+                            subtitle = "Página ${book.page} • PDF",
+                            coverPath = book.coverPath,
+                            onClick = onContinue
+                        )
+                    }
+                }
             } else {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -562,6 +611,7 @@ private fun ImportTile(
 private fun LibraryItem(
     title: String,
     subtitle: String,
+    coverPath: String?,
     onClick: () -> Unit
 ) {
     Card(
@@ -576,19 +626,12 @@ private fun LibraryItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
+            CoverThumbnail(
+                path = coverPath,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(64.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFFFE3D8)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Description,
-                    null,
-                    tint = ListenOrange
-                )
-            }
+            )
 
             Column(
                 modifier = Modifier
@@ -670,6 +713,28 @@ private fun TextReaderScreen(text: String, darkTheme: Boolean, onBack: () -> Uni
                     }
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun CoverThumbnail(path: String?, modifier: Modifier) {
+    val bitmap = remember(path) {
+        path?.let { runCatching { BitmapFactory.decodeFile(it)?.asImageBitmap() }.getOrNull() }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "Capa do livro",
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier.background(Color(0xFFFFE3D8)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Description, null, tint = ListenOrange)
         }
     }
 }
