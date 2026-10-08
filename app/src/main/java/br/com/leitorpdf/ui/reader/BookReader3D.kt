@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -185,7 +186,7 @@ fun BookReader3D(
             progress = {
                 if (pageTexts.isEmpty()) 0f else (pagerState.currentPage + 1f) / pageTexts.size
             },
-            modifier = Modifier.fillMaxSize().wrapContentHeight(Alignment.Bottom),
+            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
             color = foreground
         )
     }
