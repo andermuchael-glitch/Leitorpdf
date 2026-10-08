@@ -402,14 +402,14 @@ fun ReaderScreen(
                             }
                             DropdownMenu(menuExpanded, { menuExpanded = false }) {
                                 DropdownMenuItem(
-                                    { Text("Abrir outro PDF") },
-                                    { Icon(Icons.Default.PictureAsPdf, null) },
-                                    { menuExpanded = false; onOpenAnotherPdf() }
+                                    text = { Text("Abrir outro PDF") },
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
+                                    onClick = { menuExpanded = false; onOpenAnotherPdf() }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Ir para página") },
-                                    { Icon(Icons.Default.MenuBook, null) },
-                                    {
+                                    text = { Text("Ir para página") },
+                                    leadingIcon = { Icon(Icons.Default.MenuBook, null) },
+                                    onClick = {
                                         pageInput = state.selectedPage.toString()
                                         showPageDialog = true
                                         menuExpanded = false
@@ -446,9 +446,9 @@ fun ReaderScreen(
                                     { showAppearance = true; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
-                                    { Text("IA • criar imagem") },
-                                    { Icon(Icons.Default.AutoAwesome, null) },
-                                    {
+                                    text = { Text("IA • criar imagem") },
+                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                    onClick = {
                                         selectedText = state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty().take(4000)
                                         showAiDialog = true
                                         menuExpanded = false
