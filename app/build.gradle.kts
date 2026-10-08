@@ -11,8 +11,8 @@ android {
         applicationId = "br.com.leitorpdf"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.4.0"
+        versionCode = 4
+        versionName = "0.5.0"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
