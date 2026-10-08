@@ -4,16 +4,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import br.com.leitorpdf.reader.ReadingHighlight
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.absoluteValue
 
@@ -53,19 +54,17 @@ private fun cleanBookText(raw: String): String {
         .joinToString("\n\n")
 }
 
-private fun normalizeBook(value: String): String =
-    value.lowercase().replace(Regex("""[^\p{L}\p{Nd}]+"""), "")
-
 @Composable
 fun BookReader3D(
     pageTexts: List<String>,
     selectedPage: Int,
-    highlightText: String,
+    highlights: List<ReadingHighlight>,
     fontSize: Float,
     lineHeightMultiplier: Float,
     backgroundMode: Int,
     modifier: Modifier = Modifier,
-    onPageChange: (Int) -> Unit = {}
+    onPageChange: (Int) -> Unit = {},
+    onTextSelected: (String) -> Unit = {}
 ) {
     val pagerState = rememberPagerState(
         initialPage = (selectedPage - 1).coerceIn(0, (pageTexts.size - 1).coerceAtLeast(0)),
@@ -74,9 +73,7 @@ fun BookReader3D(
 
     LaunchedEffect(selectedPage, pageTexts.size) {
         val target = (selectedPage - 1).coerceIn(0, (pageTexts.size - 1).coerceAtLeast(0))
-        if (pagerState.currentPage != target) {
-            pagerState.animateScrollToPage(target)
-        }
+        if (pagerState.currentPage != target) pagerState.animateScrollToPage(target)
     }
 
     LaunchedEffect(pagerState) {
@@ -92,24 +89,16 @@ fun BookReader3D(
         else -> listOf(Color(0xFFE8E8EC), Color(0xFFFFFEFA), Color(0xFF252525), Color(0xFF6D6D72))
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(bookBackground)
-    ) {
+    Box(modifier = modifier.fillMaxSize().background(bookBackground)) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 42.dp, bottom = 58.dp),
+            modifier = Modifier.fillMaxSize().padding(top = 42.dp, bottom = 58.dp),
             beyondViewportPageCount = 1,
             pageSpacing = 8.dp
         ) { page ->
-            val offset = (
-                (pagerState.currentPage - page) +
-                    pagerState.currentPageOffsetFraction
-                )
+            val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
             val absoluteOffset = offset.absoluteValue
+            val pageSelection = rememberSelectionState()
 
             Box(
                 modifier = Modifier
@@ -131,33 +120,28 @@ fun BookReader3D(
                 val cleaned = remember(pageTexts.getOrNull(page)) {
                     cleanBookText(pageTexts.getOrNull(page).orEmpty())
                 }
-                val normalized = remember(cleaned) { normalizeBook(cleaned) }
-                val normalizedHighlight = remember(highlightText) { normalizeBook(highlightText) }
-                val start = remember(normalized, normalizedHighlight) {
-                    if (normalizedHighlight.length >= 3) {
-                        normalized.indexOf(normalizedHighlight)
-                    } else -1
+                val pageHighlights = highlights.filter { it.page == page + 1 }
+
+                val annotated = remember(cleaned, pageHighlights) {
+                    buildAnnotatedString {
+                        append(cleaned)
+                        pageHighlights.forEach { mark ->
+                            val index = cleaned.indexOf(mark.text, ignoreCase = true)
+                            if (index >= 0) {
+                                addStyle(
+                                    SpanStyle(background = Color(0xFFFFD54F), color = Color.Black),
+                                    index,
+                                    (index + mark.text.length).coerceAtMost(cleaned.length)
+                                )
+                            }
+                        }
+                    }
                 }
 
-                val annotated = remember(cleaned, start, normalizedHighlight) {
-                    if (start < 0) {
-                        buildAnnotatedString { append(cleaned) }
-                    } else {
-                        // O texto normalizado remove espaços; a marcação é usada
-                        // apenas como sinal visual quando há correspondência exata.
-                        val approximate = normalizedHighlight.length.coerceAtMost(cleaned.length - start)
-                        buildAnnotatedString {
-                            append(cleaned.substring(0, start))
-                            withStyle(
-                                SpanStyle(
-                                    background = Color(0xFFFFD54F),
-                                    color = Color.Black
-                                )
-                            ) {
-                                append(cleaned.substring(start, start + approximate))
-                            }
-                            append(cleaned.substring(start + approximate))
-                        }
+                LaunchedEffect(pageSelection.selectedTexts) {
+                    if (pagerState.settledPage == page) {
+                        val selected = pageSelection.selectedTexts.joinToString("\n") { it.text }.trim()
+                        onTextSelected(selected.take(4000))
                     }
                 }
 
@@ -172,44 +156,37 @@ fun BookReader3D(
                     Text(
                         text = "LEITURA",
                         color = secondary,
-                        style = TextStyle(
-                            fontSize = 11.sp,
-                            letterSpacing = 1.8.sp
-                        )
+                        style = TextStyle(fontSize = 11.sp, letterSpacing = 1.8.sp)
                     )
 
-                    Text(
-                        text = annotated,
-                        color = foreground,
-                        fontFamily = FontFamily.Serif,
-                        fontSize = fontSize.sp,
-                        lineHeight = (fontSize * lineHeightMultiplier).sp,
-                        textAlign = TextAlign.Justify,
-                        modifier = Modifier.padding(top = 18.dp)
-                    )
+                    SelectionContainer(state = pageSelection) {
+                        Text(
+                            text = annotated,
+                            color = foreground,
+                            fontFamily = FontFamily.Serif,
+                            fontSize = fontSize.sp,
+                            lineHeight = (fontSize * lineHeightMultiplier).sp,
+                            textAlign = TextAlign.Justify,
+                            modifier = Modifier.padding(top = 18.dp)
+                        )
+                    }
                 }
 
                 Text(
                     text = (page + 1).toString(),
                     color = secondary,
                     style = TextStyle(fontSize = 11.sp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 12.dp)
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
                 )
             }
         }
 
         LinearProgressIndicator(
             progress = {
-                if (pageTexts.isEmpty()) 0f
-                else (pagerState.currentPage + 1f) / pageTexts.size
+                if (pageTexts.isEmpty()) 0f else (pagerState.currentPage + 1f) / pageTexts.size
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter),
+            modifier = Modifier.fillMaxSize().wrapContentHeight(Alignment.Bottom),
             color = foreground
         )
     }
 }
-
