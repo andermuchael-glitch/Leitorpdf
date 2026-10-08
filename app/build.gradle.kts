@@ -11,8 +11,8 @@ android {
         applicationId = "br.com.leitorpdf"
         minSdk = 26
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.3.0"
+        versionCode = 3
+        versionName = "0.4.0"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -20,20 +20,18 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "TTS_ENDPOINT", """")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            buildConfigField("String", "TTS_ENDPOINT", """")
+            isMinifyEnabled = false
         }
     }
 
@@ -42,7 +40,6 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-
 }
 
 dependencies {
@@ -55,11 +52,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-
-    // TTS neural local/offline: sem Google Cloud e sem API.
-    implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
-    implementation("androidx.media3:media3-exoplayer:1.11.1")
-    implementation("androidx.media3:media3-session:1.11.1")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
