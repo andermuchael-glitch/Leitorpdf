@@ -26,6 +26,7 @@ import br.com.leitorpdf.reader.ReadingRecorderStore
 import br.com.leitorpdf.reader.ReadingRecording
 import kotlinx.coroutines.delay
 import java.io.File
+import java.io.FileInputStream
 import java.util.Locale
 
 @Composable
@@ -41,10 +42,19 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
     var musicVolume by remember { mutableFloatStateOf(.12f) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingId by remember { mutableStateOf<Long?>(null) }
+    var exportRecording by remember { mutableStateOf<ReadingRecording?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) showStart = true
         else android.widget.Toast.makeText(context, "Permissão do microfone é necessária para gravar.", android.widget.Toast.LENGTH_LONG).show()
+    }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/mp4")) { destination ->
+        val recording = exportRecording
+        if (destination != null && recording != null) runCatching {
+            context.contentResolver.openOutputStream(destination)?.use { out -> FileInputStream(recording.filePath).use { input -> input.copyTo(out) } }
+            android.widget.Toast.makeText(context, "Gravação exportada.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        exportRecording = null
     }
     val musicPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if (picked != null) {
@@ -136,7 +146,8 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
                                 Text(formatMs(recording.durationMs) + " • pág. " + recording.startPage, style = MaterialTheme.typography.bodySmall)
                             }
                             IconButton(onClick = { play(recording) }) { Icon(Icons.Default.PlayArrow, "Ouvir") }
-                            IconButton(onClick = { share(recording) }) { Icon(Icons.Default.Share, "Exportar") }
+                            IconButton(onClick = { exportRecording = recording; exportPicker.launch(recording.bookTitle.take(40) + "_leitura.m4a") }) { Icon(Icons.Default.Download, "Baixar") }
+                            IconButton(onClick = { share(recording) }) { Icon(Icons.Default.Share, "Compartilhar") }
                             IconButton(onClick = { File(recording.filePath).delete(); store.remove(recording.id); recordings = store.recordings() }) { Icon(Icons.Default.DeleteOutline, "Excluir") }
                         }
                     }
