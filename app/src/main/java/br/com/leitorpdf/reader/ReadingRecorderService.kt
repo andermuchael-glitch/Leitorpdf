@@ -7,8 +7,6 @@ import android.app.Service
 import android.content.Intent
 import android.media.MediaPlayer
 import android.media.MediaRecorder
-import android.media.audiofx.AutomaticGainControl
-import android.media.audiofx.NoiseSuppressor
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -43,8 +41,6 @@ class ReadingRecorderService : Service() {
     private var startPage = 1
     private var musicUri: String? = null
     private var musicVolume = .12f
-    private var noiseSuppressor: NoiseSuppressor? = null
-    private var gainControl: AutomaticGainControl? = null
     private var endPage = 1
     private val store by lazy { ReadingRecorderStore(applicationContext) }
 
@@ -83,8 +79,6 @@ class ReadingRecorderService : Service() {
                 prepare()
                 start()
             }
-            runCatching { noiseSuppressor = NoiseSuppressor.create(recorder?.audioSessionId ?: 0)?.apply { enabled = true } }
-            runCatching { gainControl = AutomaticGainControl.create(recorder?.audioSessionId ?: 0)?.apply { enabled = true } }
             startedAt = System.currentTimeMillis()
             accumulatedMs = 0L
             lastResumeAt = startedAt
