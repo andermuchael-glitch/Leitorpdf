@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -76,6 +78,7 @@ import br.com.leitorpdf.reader.LibraryBook
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import br.com.leitorpdf.ui.reader.ReaderScreen
+import br.com.leitorpdf.ui.reader.ReadingDashboard
 import br.com.leitorpdf.ui.theme.LeitorPdfTheme
 
 private val ListenOrange = Color(0xFFFF5A1F)
@@ -278,13 +281,14 @@ private fun HomeScreen(
     var showSettings by remember { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = ListenPeach
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 18.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Spacer(Modifier.height(12.dp))
 
@@ -525,6 +529,10 @@ private fun HomeScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(18.dp))
+
+            ReadingDashboard()
 
             Spacer(Modifier.height(18.dp))
 
