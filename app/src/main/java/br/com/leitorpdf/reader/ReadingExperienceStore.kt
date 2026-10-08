@@ -6,6 +6,14 @@ import org.json.JSONObject
 
 data class ReadingNote(val id: Long, val page: Int, val text: String, val createdAt: Long = System.currentTimeMillis())
 data class ReadingHistoryItem(val uri: String, val name: String, val page: Int, val updatedAt: Long)
+data class ReadingAppearance(
+    val fontSize: Float = 20f,
+    val lineHeight: Float = 1.55f,
+    val backgroundMode: Int = 0,
+    val filterMode: Int = 0,
+    val brightness: Float = 0f,
+    val readingMode: Int = 2
+)
 
 class ReadingExperienceStore(context: Context) {
     private val prefs = context.getSharedPreferences("reading_experience", Context.MODE_PRIVATE)
@@ -51,6 +59,26 @@ class ReadingExperienceStore(context: Context) {
             .putFloat(key(uri, "margin"), margin)
             .apply()
     }
+
+    fun setReadingAppearance(uri: String, appearance: ReadingAppearance) {
+        prefs.edit()
+            .putFloat(key(uri, "font_size"), appearance.fontSize)
+            .putFloat(key(uri, "line_height"), appearance.lineHeight)
+            .putInt(key(uri, "background_mode"), appearance.backgroundMode)
+            .putInt(key(uri, "filter_mode"), appearance.filterMode)
+            .putFloat(key(uri, "brightness"), appearance.brightness)
+            .putInt(key(uri, "reading_mode"), appearance.readingMode)
+            .apply()
+    }
+
+    fun readingAppearance(uri: String) = ReadingAppearance(
+        fontSize = prefs.getFloat(key(uri, "font_size"), 20f),
+        lineHeight = prefs.getFloat(key(uri, "line_height"), 1.55f),
+        backgroundMode = prefs.getInt(key(uri, "background_mode"), 0),
+        filterMode = prefs.getInt(key(uri, "filter_mode"), 0),
+        brightness = prefs.getFloat(key(uri, "brightness"), 0f),
+        readingMode = prefs.getInt(key(uri, "reading_mode"), 2)
+    )
 
     fun concentration(uri: String) = prefs.getBoolean(key(uri, "concentration"), false)
     fun twoPages(uri: String) = prefs.getBoolean(key(uri, "two_pages"), false)
