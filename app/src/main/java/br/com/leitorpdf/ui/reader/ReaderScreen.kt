@@ -504,12 +504,17 @@ fun ReaderScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 6.dp)
                             )
-                            TextButton(onClick = {
-                                viewModel.addHighlight(selectedText, highlightColor)
-                                selectedText = ""
-                            }) {
-                                Icon(Icons.Default.Highlight, null)
-                                Text("Marcar")
+                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                listOf(
+                                    "yellow" to Color(0xFFFFD54F),
+                                    "green" to Color(0xFF81C784),
+                                    "blue" to Color(0xFF64B5F6),
+                                    "pink" to Color(0xFFF48FB1)
+                                ).forEach { (key, color) ->
+                                    IconButton(onClick = { highlightColor = key; viewModel.addHighlight(selectedText, key); selectedText = "" }) {
+                                        Icon(Icons.Default.Circle, null, tint = color)
+                                    }
+                                }
                             }
                             TextButton(onClick = { copyText(selectedText) }) {
                                 Icon(Icons.Default.ContentCopy, null)
