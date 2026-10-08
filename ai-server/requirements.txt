@@ -1,0 +1,1 @@
+fastapi==0.116.1\nuvicorn[standard]==0.35.0\nopenai>=1.109.0,<2.0.0\npydantic>=2.11,<3.0\n
