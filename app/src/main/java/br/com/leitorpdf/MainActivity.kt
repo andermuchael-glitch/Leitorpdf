@@ -237,7 +237,7 @@ private fun LeitorPdfApp(
             onOpenPdf = { picker.launch(arrayOf("application/pdf")) },
             onOpenText = { showTextDialog = true },
             onOpenWeb = { showWebDialog = true },
-            onScan = { cameraLauncher.launch(Unit) },
+            onScan = { cameraLauncher.launch(null) },
             darkTheme = darkTheme,
             onDarkThemeChange = onDarkThemeChange,
             onContinue = {
