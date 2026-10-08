@@ -74,6 +74,23 @@ class PdfLibraryStore(private val context: Context) {
                             ?.takeIf { it.isNotBlank() }
                         if (metadataTitle != null) return@runCatching cleanTitle(metadataTitle)
 
+                        val stripper = com.tom_roush.pdfbox.text.PDFTextStripper().apply {
+                            startPage = 1
+                            endPage = minOf(2, doc.numberOfPages)
+                        }
+                        val candidates = stripper.getText(doc)
+                            .lineSequence()
+                            .map { it.trim() }
+                            .filter { it.length in 4..90 && !looksGeneric(it) }
+                            .toList()
+
+                        val titleFromCover = candidates.firstOrNull { line ->
+                            !line.endsWith(".") && !line.contains("http", ignoreCase = true)
+                        }
+                        if (titleFromCover != null) {
+                            return@runCatching cleanTitle(titleFromCover)
+                        }
+
                         val filename = fallbackName
                             .substringAfterLast('/')
                             .substringBeforeLast('.', fallbackName)
@@ -82,17 +99,7 @@ class PdfLibraryStore(private val context: Context) {
                             return@runCatching cleanTitle(filename)
                         }
 
-                        val stripper = com.tom_roush.pdfbox.text.PDFTextStripper().apply {
-                            startPage = 1
-                            endPage = 1
-                        }
-                        val firstPage = stripper.getText(doc)
-                            .lineSequence()
-                            .map { it.trim() }
-                            .filter { it.length >= 3 }
-                            .firstOrNull { !looksGeneric(it) }
-
-                        cleanTitle(firstPage ?: "Documento PDF")
+                        cleanTitle(candidates.firstOrNull() ?: "Documento PDF")
                     }
                 } ?: cleanTitle(fallbackName)
             }.getOrDefault(cleanTitle(fallbackName))
