@@ -536,7 +536,7 @@ private fun LibraryItem(
             }
 
             Icon(
-                Icons.Default.PlayArrow,
+                Icons.Default.ArrowForward,
                 null,
                 tint = ListenOrange
             )
