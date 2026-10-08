@@ -3,6 +3,7 @@ package br.com.leitorpdf.ui.reader
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -15,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +31,7 @@ import androidx.core.content.FileProvider
 import br.com.leitorpdf.data.pdf.PdfPageView
 import br.com.leitorpdf.reader.AiImageClient
 import br.com.leitorpdf.reader.ReaderViewModel
+import br.com.leitorpdf.reader.ReaderAiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
@@ -44,6 +48,7 @@ fun ReaderScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val ai = remember { AiImageClient(context) }
+    val readerAi = remember { ReaderAiClient(context) }
 
     var controlsVisible by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -65,10 +70,25 @@ fun ReaderScreen(
     var backgroundMode by remember { mutableIntStateOf(0) }
     var filterMode by remember { mutableIntStateOf(0) }
     var brightness by remember { mutableStateOf(0f) }
+    var concentration by remember { mutableStateOf(false) }
+    var twoPages by remember { mutableStateOf(false) }
+    var zoom by remember { mutableStateOf(1f) }
+    var margin by remember { mutableStateOf(26f) }
+    var showAiActions by remember { mutableStateOf(false) }
+    var aiAction by remember { mutableStateOf("explicar") }
+    var aiResult by remember { mutableStateOf("") }
+    var showAiResult by remember { mutableStateOf(false) }
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf(emptyList<Int>()) }
+    var showIndexDialog by remember { mutableStateOf(false) }
+    var showNotesDialog by remember { mutableStateOf(false) }
+    var noteText by remember { mutableStateOf("") }
+    var highlightColor by remember { mutableStateOf("yellow") }
 
     val pdfView = remember { PdfPageView(context) }
 
-    LaunchedEffect(uri) { viewModel.openPdf(uri, fileName) }
+    LaunchedEffect(uri) {\n        viewModel.openPdf(uri, fileName)\n        val options = viewModel.readingOptions()\n        concentration = options.first\n        zoom = options.second\n        margin = options.third\n    }\n    SideEffect {\n        val activity = context as? Activity\n        activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).hide(WindowInsetsCompat.Type.systemBars()) }\n    }\n    LaunchedEffect(state.selectedPage) { viewModel.recordHistory() }
     LaunchedEffect(state.selectedPage, readingMode) {
         selectedText = ""
         if (readingMode == 0 && state.pageCount > 0) {
@@ -80,7 +100,7 @@ fun ReaderScreen(
     }
     BackHandler(onBack = onBack)
 
-    fun copyText(text: String) {
+    fun runAi(action: String) {\n        val source = selectedText.ifBlank { state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty() }\n        if (source.isBlank()) return\n        aiAction = action\n        showAiActions = false\n        aiError = null\n        aiBusy = true\n        scope.launch(Dispatchers.IO) {\n            runCatching { readerAi.analyze(action, source, state.text.take(24000)) }\n                .onSuccess { result -> launch(Dispatchers.Main) { aiBusy = false; aiResult = result; showAiResult = true } }\n                .onFailure { e -> launch(Dispatchers.Main) { aiBusy = false; aiError = e.message ?: "Falha na IA." } }\n        }\n    }\n\n    fun copyText(text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("LeitorPDF", text))
     }
@@ -218,7 +238,7 @@ fun ReaderScreen(
         )
     }
 
-    if (showAiSettings) {
+    if (showSearchDialog) {\n        AlertDialog(onDismissRequest = { showSearchDialog = false }, title = { Text("Localizar no livro") }, text = {\n            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {\n                OutlinedTextField(searchQuery, { searchQuery = it }, label = { Text("Palavra ou frase") }, singleLine = true)\n                if (searchResults.isNotEmpty()) Text("Encontrado nas páginas: " + searchResults.joinToString(", "))\n            }\n        }, confirmButton = { TextButton(onClick = {\n            val q = searchQuery.trim().lowercase(); searchResults = if (q.isBlank()) emptyList() else state.pageTexts.mapIndexedNotNull { i, t -> if (t.lowercase().contains(q)) i + 1 else null };\n            searchResults.firstOrNull()?.let(viewModel::setSelectedPage)\n        }) { Text("Localizar") } }, dismissButton = { TextButton(onClick = { showSearchDialog = false }) { Text("Fechar") } })\n    }\n\n    if (showIndexDialog) {\n        val chapters = state.pageTexts.mapIndexedNotNull { i, text -> val first = text.lines().map { it.trim() }.firstOrNull { it.length in 3..100 && (it.all { ch -> !ch.isLowerCase() } || it.matches(Regex("""(capítulo|chapter|\d+[.)-]).*""", RegexOption.IGNORE_CASE))) }; first?.let { i + 1 to it } }\n        AlertDialog(onDismissRequest = { showIndexDialog = false }, title = { Text("Índice do livro") }, text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { if (chapters.isEmpty()) Text("Não foi possível identificar capítulos automaticamente.") else chapters.take(80).forEach { (page, title) -> TextButton(onClick = { viewModel.setSelectedPage(page); showIndexDialog = false }, modifier = Modifier.fillMaxWidth()) { Text("P. $page  $title", maxLines = 1, overflow = TextOverflow.Ellipsis) } } } }, confirmButton = { TextButton(onClick = { showIndexDialog = false }) { Text("Fechar") } })\n    }\n\n    if (showNotesDialog) {\n        AlertDialog(onDismissRequest = { showNotesDialog = false }, title = { Text("Notas pessoais") }, text = {\n            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {\n                OutlinedTextField(noteText, { noteText = it }, label = { Text("Nova nota para a página " + state.selectedPage) }, minLines = 3)\n                state.notes.takeLast(8).reversed().forEach { note -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("P.${note.page}  " + note.text, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis); IconButton(onClick = { viewModel.removeNote(note.id) }) { Icon(Icons.Default.DeleteOutline, "Excluir") } } }\n            }\n        }, confirmButton = { TextButton(onClick = { if (noteText.isNotBlank()) { viewModel.addNote(noteText); noteText = "" } }) { Text("Salvar nota") } }, dismissButton = { TextButton(onClick = { showNotesDialog = false }) { Text("Fechar") } })\n    }\n\n    if (showAiActions) {\n        AlertDialog(onDismissRequest = { showAiActions = false }, title = { Text("IA de leitura") }, text = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {\n            listOf("explicar" to "Explicar este trecho","resumir" to "Resumir","simples" to "Explicar em linguagem simples","perguntas_capitulo" to "Fazer perguntas sobre o capítulo","conceitos" to "Encontrar conceitos importantes","estudo" to "Criar estudo / resumo","perguntas_estudo" to "Gerar perguntas para estudo").forEach { (key,label) -> TextButton(onClick = { runAi(key) }, modifier = Modifier.fillMaxWidth()) { Text(label) } }\n        } }, confirmButton = { TextButton(onClick = { showAiActions = false; showAiSettings = true }) { Text("Configurar IA") } })\n    }\n\n    if (showAiResult) {\n        AlertDialog(onDismissRequest = { showAiResult = false }, title = { Text("IA • " + aiAction) }, text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 480.dp)) { item { Text(aiResult) } } }, confirmButton = { TextButton(onClick = { copyText(aiResult); showAiResult = false }) { Text("Copiar") } })\n    }\n\n    if (showAiSettings) {
         AlertDialog(
             onDismissRequest = { showAiSettings = false },
             title = { Text("Configurar IA") },
@@ -323,6 +343,9 @@ fun ReaderScreen(
                     fontSize = fontSize,
                     lineHeightMultiplier = lineHeight,
                     backgroundMode = backgroundMode,
+                    concentration = concentration,
+                    zoom = zoom,
+                    margin = margin,
                     modifier = Modifier.fillMaxSize(),
                     onIncreaseFont = { fontSize = (fontSize + 1).coerceAtMost(34f) },
                     onDecreaseFont = { fontSize = (fontSize - 1).coerceAtLeast(16f) },
@@ -482,7 +505,7 @@ fun ReaderScreen(
                                 modifier = Modifier.padding(horizontal = 6.dp)
                             )
                             TextButton(onClick = {
-                                viewModel.addHighlight(selectedText)
+                                viewModel.addHighlight(selectedText, highlightColor)
                                 selectedText = ""
                             }) {
                                 Icon(Icons.Default.Highlight, null)
@@ -492,7 +515,7 @@ fun ReaderScreen(
                                 Icon(Icons.Default.ContentCopy, null)
                                 Text("Copiar")
                             }
-                            TextButton(onClick = { showAiDialog = true }) {
+                            TextButton(onClick = { showAiActions = true }) {
                                 Icon(Icons.Default.AutoAwesome, null)
                                 Text("IA")
                             }
