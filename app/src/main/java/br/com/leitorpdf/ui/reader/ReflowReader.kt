@@ -71,7 +71,10 @@ fun ReflowReader(
     modifier: Modifier = Modifier,
     onIncreaseFont: () -> Unit,
     onDecreaseFont: () -> Unit,
-    onTextSelected: (String) -> Unit = {}
+    onTextSelected: (String) -> Unit = {},
+    concentration: Boolean = false,
+    zoom: Float = 1f,
+    margin: Float = 22f
 ) {
     val scrollState = rememberScrollState()
     val selectionState = rememberSelectionState()
@@ -125,7 +128,7 @@ fun ReflowReader(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 22.dp, vertical = 76.dp)
+                .padding(horizontal = margin.dp, vertical = 76.dp)
                 .widthIn(max = 720.dp)
                 .align(Alignment.TopCenter)
         ) {
@@ -159,8 +162,8 @@ fun ReflowReader(
                     Text(
                         text = annotated,
                         color = foreground,
-                        fontSize = fontSize.sp,
-                        lineHeight = (fontSize * lineHeightMultiplier).sp,
+                        fontSize = (fontSize * zoom).sp,
+                        lineHeight = (fontSize * zoom * lineHeightMultiplier).sp,
                         textAlign = TextAlign.Start,
                         style = TextStyle(letterSpacing = 0.01.sp)
                     )
