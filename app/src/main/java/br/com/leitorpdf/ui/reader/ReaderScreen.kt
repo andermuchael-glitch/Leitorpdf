@@ -37,6 +37,8 @@ import br.com.leitorpdf.reader.ReaderAiClient
 import br.com.leitorpdf.reader.ReadingAppearance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import br.com.leitorpdf.reader.ReadingStatsStore
 
 @Composable
 fun ReaderScreen(
@@ -61,6 +63,7 @@ fun ReaderScreen(
     var showReadingSettings by remember { mutableStateOf(false) }
     var showAppearance by remember { mutableStateOf(false) }
     var showAiSettings by remember { mutableStateOf(false) }
+    var showRecorder by remember { mutableStateOf(false) }
     var aiBusy by remember { mutableStateOf(false) }
     var aiError by remember { mutableStateOf<String?>(null) }
     var fontSize by remember { mutableStateOf(20f) }
@@ -141,6 +144,13 @@ fun ReaderScreen(
         activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).hide(WindowInsetsCompat.Type.systemBars()) }
     }
     LaunchedEffect(state.selectedPage) { viewModel.recordHistory() }
+    LaunchedEffect(uri) {
+        val stats = ReadingStatsStore(context)
+        while (true) {
+            delay(10000)
+            stats.addReadingMs(10000L, uri.toString(), fileName)
+        }
+    }
     LaunchedEffect(state.selectedPage, readingMode) {
         selectedText = ""
         if (readingMode == 0 && state.pageCount > 0) {
@@ -294,7 +304,7 @@ fun ReaderScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         listOf("Normal", "Sépia", "Cinza", "Invertido").forEachIndexed { i, label ->
                             OutlinedButton(
-                                onClick = { filterMode = i; pdfView.setFilterMode(i); persistAppearance(); persistAppearance() },
+                                onClick = { filterMode = i; pdfView.setFilterMode(i); persistAppearance() },
                                 Modifier.weight(1f)
                             ) { Text(label, fontSize = 10.sp) }
                         }
@@ -554,6 +564,16 @@ fun ReaderScreen(
                                     onClick = { showAppearance = true; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("🎙️ Gravar leitura") },
+                                    leadingIcon = { Icon(Icons.Default.RecordVoiceOver, null) },
+                                    onClick = { showRecorder = true; menuExpanded = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("🎙️ Minhas gravações") },
+                                    leadingIcon = { Icon(Icons.Default.Folder, null) },
+                                    onClick = { showRecorder = true; menuExpanded = false }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Configurar IA") },
                                     leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
                                     onClick = { showAiSettings = true; menuExpanded = false }
@@ -641,6 +661,22 @@ fun ReaderScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            if (showRecorder) {
+                Surface(
+                    Modifier.align(Alignment.Center).fillMaxWidth().padding(18.dp),
+                    RoundedCornerShape(24.dp),
+                    MaterialTheme.colorScheme.surface
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Estúdio de leitura", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { showRecorder = false }) { Text("Fechar") }
+                        }
+                        ReadingRecorderPanel(uri = uri, bookTitle = fileName, page = state.selectedPage)
                     }
                 }
             }
