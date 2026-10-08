@@ -92,6 +92,7 @@ fun ReaderScreen(
         concentration = options.first
         zoom = options.second
         margin = options.third
+        twoPages = viewModel.twoPageMode()
     }
     SideEffect {
         val activity = context as? Activity
