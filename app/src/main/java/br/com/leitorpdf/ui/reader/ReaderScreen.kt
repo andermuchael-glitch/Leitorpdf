@@ -194,6 +194,14 @@ fun ReaderScreen(
                     Slider(fontSize, { fontSize = it }, valueRange = 16f..34f)
                     Text("Espaçamento")
                     Slider(lineHeight, { lineHeight = it }, valueRange = 1.25f..1.9f)
+                    Text("Zoom: " + (zoom * 100).toInt() + "%")
+                    Slider(zoom, { zoom = it; viewModel.saveReadingOptions(concentration, twoPages, zoom, margin) }, valueRange = 0.85f..1.35f)
+                    Text("Margens: " + margin.toInt() + " dp")
+                    Slider(margin, { margin = it; viewModel.saveReadingOptions(concentration, twoPages, zoom, margin) }, valueRange = 12f..48f)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = concentration, onClick = { concentration = !concentration; viewModel.saveReadingOptions(concentration, twoPages, zoom, margin) }, label = { Text("Concentração") })
+                        FilterChip(selected = twoPages, onClick = { twoPages = !twoPages; viewModel.saveReadingOptions(concentration, twoPages, zoom, margin) }, label = { Text("2 páginas") })
+                    }
                     Text("Fundo")
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         listOf("Claro", "Sépia", "Escuro", "Preto").forEachIndexed { i, label ->
