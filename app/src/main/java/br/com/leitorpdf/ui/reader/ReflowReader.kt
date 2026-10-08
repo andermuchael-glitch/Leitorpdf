@@ -100,7 +100,7 @@ fun ReflowReader(
                         val start = from + index
                         val end = (start + mark.text.length).coerceAtMost(text.length)
                         addStyle(
-                            SpanStyle(background = Color(0xFFFFD54F), color = Color.Black),
+                            SpanStyle(background = when (mark.color) { "green" -> Color(0xFF81C784); "blue" -> Color(0xFF64B5F6); "pink" -> Color(0xFFF48FB1); else -> Color(0xFFFFD54F) }, color = Color.Black),
                             start,
                             end
                         )
