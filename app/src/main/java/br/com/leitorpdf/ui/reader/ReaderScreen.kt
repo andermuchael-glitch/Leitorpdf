@@ -416,34 +416,34 @@ fun ReaderScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Marcações e favoritos") },
-                                    { Icon(Icons.Default.FormatColorHighlight, null) },
-                                    { showMarksDialog = true; menuExpanded = false }
+                                    text = { Text("Marcações e favoritos") },
+                                    leadingIcon = { Icon(Icons.Default.FormatColorHighlight, null) },
+                                    onClick = { showMarksDialog = true; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Modo Reflow") },
-                                    { Icon(Icons.Default.FormatSize, null) },
-                                    { readingMode = 1; menuExpanded = false }
+                                    text = { Text("Modo Reflow") },
+                                    leadingIcon = { Icon(Icons.Default.FormatSize, null) },
+                                    onClick = { readingMode = 1; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Modo Livro 3D") },
-                                    { Icon(Icons.Default.AutoStories, null) },
-                                    { readingMode = 2; menuExpanded = false }
+                                    text = { Text("Modo Livro 3D") },
+                                    leadingIcon = { Icon(Icons.Default.AutoStories, null) },
+                                    onClick = { readingMode = 2; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
-                                    { Text("PDF original") },
-                                    { Icon(Icons.Default.PictureAsPdf, null) },
-                                    { readingMode = 0; menuExpanded = false }
+                                    text = { Text("PDF original") },
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
+                                    onClick = { readingMode = 0; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Ajustes da leitura") },
-                                    { Icon(Icons.Default.Tune, null) },
-                                    { showReadingSettings = true; menuExpanded = false }
+                                    text = { Text("Ajustes da leitura") },
+                                    leadingIcon = { Icon(Icons.Default.Tune, null) },
+                                    onClick = { showReadingSettings = true; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Aparência do PDF") },
-                                    { Icon(Icons.Default.Brightness6, null) },
-                                    { showAppearance = true; menuExpanded = false }
+                                    text = { Text("Aparência do PDF") },
+                                    leadingIcon = { Icon(Icons.Default.Brightness6, null) },
+                                    onClick = { showAppearance = true; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("IA • criar imagem") },
@@ -455,9 +455,9 @@ fun ReaderScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    { Text("Configurar IA") },
-                                    { Icon(Icons.Default.AutoAwesome, null) },
-                                    { showAiSettings = true; menuExpanded = false }
+                                    text = { Text("Configurar IA") },
+                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                    onClick = { showAiSettings = true; menuExpanded = false }
                                 )
                             }
                         }
