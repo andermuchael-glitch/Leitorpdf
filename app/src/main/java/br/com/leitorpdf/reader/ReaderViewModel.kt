@@ -23,6 +23,7 @@ data class ReaderUiState(
     val resumePage: Int = 1,
     val highlights: List<ReadingHighlight> = emptyList(),
     val bookmarks: List<Int> = emptyList(),
+    val notes: List<ReadingNote> = emptyList(),
     val error: String? = null
 )
 
@@ -31,6 +32,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val prefs =
         application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
     private val annotations = ReadingAnnotationStore(application)
+    private val experience = ReadingExperienceStore(application)
 
     private val _state = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = _state.asStateFlow()
@@ -56,7 +58,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             resumeAvailable = same && available,
             resumePage = savedPage,
             highlights = annotations.highlights(uriString),
-            bookmarks = annotations.bookmarks(uriString)
+            bookmarks = annotations.bookmarks(uriString),
+            notes = experience.notes(uriString)
         )
 
         viewModelScope.launch {
@@ -122,6 +125,42 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun highlightsForPage(page: Int = _state.value.selectedPage): List<ReadingHighlight> =
         _state.value.highlights.filter { it.page == page }
+
+    fun addNote(text: String) {
+        val c = _state.value
+        if (c.uri.isBlank() || text.isBlank()) return
+        experience.addNote(c.uri, c.selectedPage, text)
+        _state.value = c.copy(notes = experience.notes(c.uri))
+    }
+
+    fun removeNote(id: Long) {
+        val c = _state.value
+        experience.removeNote(c.uri, id)
+        _state.value = c.copy(notes = experience.notes(c.uri))
+    }
+
+    fun recordHistory() {
+        val c = _state.value
+        if (c.uri.isNotBlank()) experience.addHistory(c.uri, c.fileName, c.selectedPage)
+    }
+
+    fun readingOptions(): Triple<Boolean, Float, Float> {
+        val c = _state.value
+        return Triple(
+            experience.concentration(c.uri),
+            experience.zoom(c.uri),
+            experience.margin(c.uri)
+        )
+    }
+
+    fun saveReadingOptions(concentration: Boolean, twoPages: Boolean, zoom: Float, margin: Float) {
+        val c = _state.value
+        if (c.uri.isNotBlank()) experience.setReadingOptions(c.uri, concentration, twoPages, zoom, margin)
+    }
+
+    fun twoPageMode(): Boolean = experience.twoPages(_state.value.uri)
+
+    fun history(): List<ReadingHistoryItem> = experience.history()
 
     private fun persistPage(page: Int) {
         prefs.edit()
