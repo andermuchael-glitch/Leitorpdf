@@ -149,7 +149,7 @@ private fun LeitorPdfApp(
     } else {
         HomeScreen(
             lastName = prefs.getString("last_name", null),
-            lastPage = prefs.getInt("current_page", 1),
+            lastPage = prefs.getInt("page", 1),
             hasLastDocument = prefs.getString("last_uri", null) != null,
             onOpenPdf = { picker.launch(arrayOf("application/pdf")) },
             onContinue = {
@@ -197,7 +197,7 @@ private fun HomeScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "Transforme páginas em áudio",
+                        "Leitura inteligente • PDF + IA",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -230,7 +230,7 @@ private fun HomeScreen(
             Spacer(Modifier.height(18.dp))
 
             Text(
-                "O que você quer ouvir?",
+                "O que você quer ler?",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -283,7 +283,7 @@ private fun HomeScreen(
 
             if (hasLastDocument && lastName != null) {
                 Text(
-                    "Continue ouvindo",
+                    "Continue lendo",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -379,7 +379,7 @@ private fun HomeScreen(
             if (hasLastDocument && lastName != null) {
                 LibraryItem(
                     title = lastName,
-                    subtitle = "PDF • pronto para ouvir",
+                    subtitle = "PDF • leitura inteligente",
                     onClick = onContinue
                 )
             } else {
@@ -404,7 +404,7 @@ private fun HomeScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Adicione um PDF para começar a leitura ou narração.",
+                            "Adicione um PDF para começar sua leitura.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
