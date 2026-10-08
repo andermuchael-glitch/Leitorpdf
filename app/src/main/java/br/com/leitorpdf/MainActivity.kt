@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,10 +73,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            LeitorPdfTheme(darkTheme = false) {
+            val themePrefs = getSharedPreferences("app_preferences", MODE_PRIVATE)
+            var darkTheme by remember { mutableStateOf(themePrefs.getBoolean("dark_theme", false)) }
+            LeitorPdfTheme(darkTheme = darkTheme) {
                 LeitorPdfApp(
                     initialUri = intent?.data,
-                    activity = this
+                    activity = this,
+                    darkTheme = darkTheme,
+                    onDarkThemeChange = {
+                        darkTheme = it
+                        themePrefs.edit().putBoolean("dark_theme", it).apply()
+                    }
                 )
             }
         }
@@ -82,7 +93,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun LeitorPdfApp(
     initialUri: Uri?,
-    activity: ComponentActivity
+    activity: ComponentActivity,
+    darkTheme: Boolean,
+    onDarkThemeChange: (Boolean) -> Unit
 ) {
     val prefs = activity.getSharedPreferences(
         "reading_progress",
@@ -94,6 +107,7 @@ private fun LeitorPdfApp(
     }
 
     var selectedUri by remember { mutableStateOf(rememberedUri) }
+    var textContent by remember { mutableStateOf<String?>(null) }
     var selectedName by remember {
         mutableStateOf(
             if (initialUri != null) {
@@ -105,6 +119,17 @@ private fun LeitorPdfApp(
     }
 
     val readerViewModel: ReaderViewModel = viewModel()
+
+    var showTextDialog by remember { mutableStateOf(false) }
+    var showWebDialog by remember { mutableStateOf(false) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            Toast.makeText(activity, "Página capturada. OCR da imagem será adicionado depois.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -133,7 +158,26 @@ private fun LeitorPdfApp(
         }
     }
 
-    if (selectedUri != null) {
+    if (showTextDialog) {
+        TextInputDialog(
+            onDismiss = { showTextDialog = false },
+            onOpen = { value -> textContent = value; showTextDialog = false }
+        )
+    }
+    if (showWebDialog) {
+        WebInputDialog(
+            onDismiss = { showWebDialog = false },
+            onOpen = { value ->
+                showWebDialog = false
+                runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value))) }
+                    .onFailure { Toast.makeText(activity, "Não foi possível abrir o endereço.", Toast.LENGTH_SHORT).show() }
+            }
+        )
+    }
+
+    if (textContent != null && selectedUri == null) {
+        TextReaderScreen(textContent.orEmpty(), darkTheme, onBack = { textContent = null })
+    } else if (selectedUri != null) {
         ReaderScreen(
             uri = selectedUri!!,
             fileName = selectedName,
@@ -151,6 +195,11 @@ private fun LeitorPdfApp(
             lastPage = prefs.getInt("page", 1),
             hasLastDocument = prefs.getString("last_uri", null) != null,
             onOpenPdf = { picker.launch(arrayOf("application/pdf")) },
+            onOpenText = { showTextDialog = true },
+            onOpenWeb = { showWebDialog = true },
+            onScan = { cameraLauncher.launch() },
+            darkTheme = darkTheme,
+            onDarkThemeChange = onDarkThemeChange,
             onContinue = {
                 prefs.getString("last_uri", null)
                     ?.let(Uri::parse)
@@ -167,12 +216,18 @@ private fun LeitorPdfApp(
 @Composable
 private fun HomeScreen(
     lastName: String?,
+    darkTheme: Boolean,
+    onDarkThemeChange: (Boolean) -> Unit,
     lastPage: Int,
     hasLastDocument: Boolean,
     onOpenPdf: () -> Unit,
+    onOpenText: () -> Unit,
+    onOpenWeb: () -> Unit,
+    onScan: () -> Unit,
     onContinue: () -> Unit
 ) {
     var searchMode by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = ListenPeach
@@ -205,7 +260,7 @@ private fun HomeScreen(
                 IconButton(onClick = { searchMode = !searchMode }) {
                     Icon(Icons.Default.Search, "Pesquisar")
                 }
-                IconButton(onClick = {}) {
+                IconButton(onClick = { showSettings = true }) {
                     Icon(Icons.Default.Settings, "Configurações")
                 }
             }
@@ -252,7 +307,7 @@ private fun HomeScreen(
                     icon = Icons.Default.TextSnippet,
                     title = "Texto",
                     subtitle = "Colar conteúdo",
-                    onClick = {}
+                    onClick = onOpenText
                 )
             }
 
@@ -266,15 +321,15 @@ private fun HomeScreen(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Link,
                     title = "Página web",
-                    subtitle = "URL",
-                    onClick = {}
+                    subtitle = "Abrir no navegador",
+                    onClick = onOpenWeb
                 )
                 ImportTile(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.CameraAlt,
                     title = "Escanear",
-                    subtitle = "Foto da página",
-                    onClick = {}
+                    subtitle = "Capturar página",
+                    onClick = onScan
                 )
             }
 
@@ -441,6 +496,24 @@ private fun HomeScreen(
             }
         }
     }
+
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            title = { Text("Configurações") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Aparência do aplicativo", fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !darkTheme, onClick = { onDarkThemeChange(false) }, label = { Text("Claro") })
+                        FilterChip(selected = darkTheme, onClick = { onDarkThemeChange(true) }, label = { Text("Escuro") })
+                    }
+                    Text("No leitor, você também pode escolher tons de papel, sépia, azul e verde.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Concluir") } }
+        )
+    }
 }
 
 @Composable
@@ -543,6 +616,59 @@ private fun LibraryItem(
 
             IconButton(onClick = {}) {
                 Icon(Icons.Default.MoreHoriz, "Mais opções")
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun TextInputDialog(onDismiss: () -> Unit, onOpen: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ler texto") },
+        text = { OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), minLines = 6, label = { Text("Cole ou digite o texto") }) },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onOpen(text.trim()) }) { Text("Ler") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
+
+@Composable
+private fun WebInputDialog(onDismiss: () -> Unit, onOpen: (String) -> Unit) {
+    var url by remember { mutableStateOf("https://") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Abrir página web") },
+        text = { OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Endereço") }) },
+        confirmButton = { TextButton(enabled = url.startsWith("http://") || url.startsWith("https://"), onClick = { onOpen(url.trim()) }) { Text("Abrir") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
+
+@Composable
+private fun TextReaderScreen(text: String, darkTheme: Boolean, onBack: () -> Unit) {
+    var tone by remember { mutableIntStateOf(if (darkTheme) 2 else 0) }
+    val (bg, fg) = when (tone) {
+        1 -> Color(0xFFF4E8C8) to Color(0xFF3F3525)
+        2 -> Color(0xFF202124) to Color(0xFFE8EAED)
+        3 -> Color(0xFFEAF2FA) to Color(0xFF243447)
+        4 -> Color(0xFFEAF4EA) to Color(0xFF243424)
+        else -> Color(0xFFFDFCF8) to Color(0xFF202124)
+    }
+    Scaffold(containerColor = bg) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 22.dp, vertical = 12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar", tint = fg) }
+                Text("Leitura de texto", Modifier.weight(1f), color = fg, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { tone = (tone + 1) % 5 }) { Icon(Icons.Default.Palette, "Mudar tom", tint = fg) }
+            }
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+                    item {
+                        Text(text, color = fg, fontSize = 20.sp, lineHeight = 31.sp, modifier = Modifier.padding(top = 14.dp))
+                    }
+                }
             }
         }
     }
