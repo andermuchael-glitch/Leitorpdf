@@ -84,6 +84,9 @@ fun ReflowReader(
         1 -> Triple(Color(0xFFF4E8C8), Color(0xFF3F3525), Color(0xFF6F624D))
         2 -> Triple(Color(0xFF202124), Color(0xFFE8EAED), Color(0xFFB8BCC4))
         3 -> Triple(Color.Black, Color.White, Color(0xFFD0D0D0))
+        4 -> Triple(Color(0xFFEAF2FA), Color(0xFF243447), Color(0xFF4D657A))
+        5 -> Triple(Color(0xFFEAF4EA), Color(0xFF243424), Color(0xFF4F6A4F))
+        6 -> Triple(Color(0xFFFFF0F3), Color(0xFF3D2A2E), Color(0xFF76545A))
         else -> Triple(Color(0xFFFDFCF8), Color(0xFF202124), Color(0xFF5F6368))
     }
 
