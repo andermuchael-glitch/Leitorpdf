@@ -240,9 +240,14 @@ private fun LeitorPdfApp(
                     ?.let(Uri::parse)
                     ?.let {
                         selectedUri = it
-                        selectedName = prefs.getString("last_name", "Documento PDF")
+                        selectedName = libraryBooks.firstOrNull()?.title
+                            ?: prefs.getString("last_name", "Documento PDF")
                             ?: "Documento PDF"
                     }
+            },
+            onOpenBook = { book ->
+                selectedUri = Uri.parse(book.uri)
+                selectedName = book.title
             }
         )
     }
@@ -261,7 +266,8 @@ private fun HomeScreen(
     onOpenText: () -> Unit,
     onOpenWeb: () -> Unit,
     onScan: () -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onOpenBook: (LibraryBook) -> Unit
 ) {
     var searchMode by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -481,7 +487,7 @@ private fun HomeScreen(
                             title = book.title,
                             subtitle = "Página ${book.page} • PDF",
                             coverPath = book.coverPath,
-                            onClick = onContinue
+                            onClick = { onOpenBook(book) }
                         )
                     }
                 }
