@@ -196,6 +196,7 @@ fun BookReader3D(
     }
 }
 
+@Composable
 private fun BookPage(
     raw: String, pageNumber: Int, highlights: List<ReadingHighlight>, fontSize: Float,
     lineHeightMultiplier: Float, backgroundMode: Int, zoom: Float, margin: Float,
