@@ -3,6 +3,7 @@ package br.com.leitorpdf.ui.reader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,26 +34,92 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.leitorpdf.reader.ReadingHighlight
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.absoluteValue
 
-private fun cleanBookText(raw: String): String {
-    if (raw.isBlank()) return ""
-    return raw
-        .replace("\u00ad", "")
-        .replace(Regex("""(?<=\p{L})-\s*\n\s*(?=\p{L})"""), "")
-        .replace(Regex("""[ \t]+"""), " ")
-        .replace(Regex("""\n[ \t]+"""), "\n")
-        .replace(Regex("""[ \t]+\n"""), "\n")
-        .replace(Regex("""\n{3,}"""), "\n\n")
-        .split("\n\n")
-        .map { it.replace(Regex("""\s*\n\s*"""), " ").trim() }
-        .filter { it.isNotBlank() }
-        .joinToString("\n\n")
+private fun cleanBookText(raw: String): String = raw
+    .replace("\u00ad", "")
+    .replace(Regex("""(?<=\p{L})-\s*\n\s*(?=\p{L})"""), "")
+    .replace(Regex("""[ \t]+"""), " ")
+    .replace(Regex("""\n[ \t]+"""), "\n")
+    .replace(Regex("""[ \t]+\n"""), "\n")
+    .replace(Regex("""\n{3,}"""), "\n\n")
+    .split("\n\n")
+    .map { it.replace(Regex("""\s*\n\s*"""), " ").trim() }
+    .filter { it.isNotBlank() }
+    .joinToString("\n\n")
+
+@Composable
+private fun BookPage(
+    raw: String,
+    pageNumber: Int,
+    highlights: List<ReadingHighlight>,
+    fontSize: Float,
+    lineHeightMultiplier: Float,
+    backgroundMode: Int,
+    zoom: Float,
+    margin: Float,
+    onTextSelected: (String) -> Unit
+) {
+    val pageSelection = rememberSelectionState()
+    val cleaned = remember(raw) { cleanBookText(raw) }
+    val annotated = remember(cleaned, highlights) {
+        buildAnnotatedString {
+            append(cleaned)
+            highlights.forEach { mark ->
+                val index = cleaned.indexOf(mark.text, ignoreCase = true)
+                if (index >= 0) addStyle(
+                    SpanStyle(background = Color(0xFFFFD54F), color = Color.Black),
+                    index, (index + mark.text.length).coerceAtMost(cleaned.length)
+                )
+            }
+        }
+    }
+    LaunchedEffect(pageSelection.selectedTexts) {
+        onTextSelected(pageSelection.selectedTexts.joinToString("\n") { it.text }.trim().take(4000))
+    }
+    val paper = when (backgroundMode) {
+        1 -> Color(0xFFF8EBCB)
+        2 -> Color(0xFF242529)
+        3 -> Color(0xFF080808)
+        else -> Color(0xFFFFFEFA)
+    }
+    val foreground = when (backgroundMode) {
+        1 -> Color(0xFF3E3425)
+        2 -> Color(0xFFE9E9EC)
+        3 -> Color.White
+        else -> Color(0xFF252525)
+    }
+    Box(
+        Modifier.fillMaxSize().padding(4.dp).clip(RoundedCornerShape(5.dp)).background(paper)
+    ) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(
+                start = margin.dp, end = margin.dp, top = 28.dp, bottom = 32.dp
+            ).widthIn(max = 760.dp),
+            verticalArrangement = Arrangement.Top
+        ) {
+            Text(
+                "LEITURA  •  " + pageNumber,
+                color = foreground.copy(alpha = .58f),
+                style = TextStyle(fontSize = 10.sp, letterSpacing = 1.6.sp)
+            )
+            SelectionContainer(state = pageSelection) {
+                Text(
+                    annotated,
+                    color = foreground,
+                    fontFamily = FontFamily.Serif,
+                    fontSize = (fontSize * zoom).sp,
+                    lineHeight = (fontSize * zoom * lineHeightMultiplier).sp,
+                    textAlign = TextAlign.Justify,
+                    modifier = Modifier.padding(top = 18.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -64,33 +131,35 @@ fun BookReader3D(
     lineHeightMultiplier: Float,
     backgroundMode: Int,
     modifier: Modifier = Modifier,
+    twoPages: Boolean = false,
+    concentration: Boolean = false,
+    zoom: Float = 1f,
+    margin: Float = 26f,
     onPageChange: (Int) -> Unit = {},
     onTextSelected: (String) -> Unit = {}
 ) {
-    val pagerState = rememberPagerState(
-        initialPage = (selectedPage - 1).coerceIn(0, (pageTexts.size - 1).coerceAtLeast(0)),
-        pageCount = { pageTexts.size }
-    )
+    val pageCount = if (twoPages) ((pageTexts.size + 1) / 2).coerceAtLeast(1) else pageTexts.size.coerceAtLeast(1)
+    val initial = if (twoPages) ((selectedPage - 1) / 2).coerceIn(0, pageCount - 1) else (selectedPage - 1).coerceIn(0, pageCount - 1)
+    val pagerState = rememberPagerState(initialPage = initial, pageCount = { pageCount })
 
-    LaunchedEffect(selectedPage, pageTexts.size) {
-        val target = (selectedPage - 1).coerceIn(0, (pageTexts.size - 1).coerceAtLeast(0))
+    LaunchedEffect(selectedPage, pageTexts.size, twoPages) {
+        val target = if (twoPages) ((selectedPage - 1) / 2).coerceIn(0, pageCount - 1) else (selectedPage - 1).coerceIn(0, pageCount - 1)
         if (pagerState.currentPage != target) pagerState.animateScrollToPage(target)
     }
-
-    LaunchedEffect(pagerState) {
+    LaunchedEffect(pagerState, twoPages) {
         snapshotFlow { pagerState.settledPage }.collectLatest { page ->
-            if (pageTexts.isNotEmpty()) onPageChange(page + 1)
+            onPageChange(if (twoPages) page * 2 + 1 else page + 1)
         }
     }
 
-    val (bookBackground, paper, foreground, secondary) = when (backgroundMode) {
-        1 -> listOf(Color(0xFFF0E1BD), Color(0xFFF8EBCB), Color(0xFF3E3425), Color(0xFF75664E))
-        2 -> listOf(Color(0xFF17181B), Color(0xFF242529), Color(0xFFE9E9EC), Color(0xFFB5B7C0))
-        3 -> listOf(Color.Black, Color(0xFF080808), Color.White, Color(0xFFCCCCCC))
-        else -> listOf(Color(0xFFE8E8EC), Color(0xFFFFFEFA), Color(0xFF252525), Color(0xFF6D6D72))
+    val bookBackground = if (concentration) Color.Black else when (backgroundMode) {
+        1 -> Color(0xFFE8D8B3)
+        2 -> Color(0xFF17181B)
+        3 -> Color.Black
+        else -> Color(0xFFE8E8EC)
     }
 
-    Box(modifier = modifier.fillMaxSize().background(bookBackground)) {
+    Box(modifier.fillMaxSize().background(bookBackground)) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize().padding(top = 42.dp, bottom = 58.dp),
@@ -99,95 +168,42 @@ fun BookReader3D(
         ) { page ->
             val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
             val absoluteOffset = offset.absoluteValue
-            val pageSelection = rememberSelectionState()
-
+            val start = if (twoPages) page * 2 else page
+            val first = pageTexts.getOrNull(start).orEmpty()
+            val second = if (twoPages) pageTexts.getOrNull(start + 1).orEmpty() else ""
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .graphicsLayer {
-                        rotationY = (offset * 18f).coerceIn(-18f, 18f)
-                        cameraDistance = 28f * density
-                        transformOrigin = TransformOrigin(
-                            pivotFractionX = if (offset >= 0f) 1f else 0f,
-                            pivotFractionY = 0.5f
-                        )
-                        alpha = 1f - (absoluteOffset * 0.18f).coerceIn(0f, 0.18f)
-                        shadowElevation = (8f - absoluteOffset * 6f).coerceAtLeast(0f)
-                    }
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(paper)
+                Modifier.fillMaxSize().graphicsLayer {
+                    rotationY = (offset * 18f).coerceIn(-18f, 18f)
+                    cameraDistance = 28f * density
+                    transformOrigin = TransformOrigin(if (offset >= 0f) 1f else 0f, .5f)
+                    alpha = 1f - (absoluteOffset * .18f).coerceIn(0f, .18f)
+                }
             ) {
-                val cleaned = remember(pageTexts.getOrNull(page)) {
-                    cleanBookText(pageTexts.getOrNull(page).orEmpty())
-                }
-                val pageHighlights = highlights.filter { it.page == page + 1 }
-
-                val annotated = remember(cleaned, pageHighlights) {
-                    buildAnnotatedString {
-                        append(cleaned)
-                        pageHighlights.forEach { mark ->
-                            val index = cleaned.indexOf(mark.text, ignoreCase = true)
-                            if (index >= 0) {
-                                addStyle(
-                                    SpanStyle(background = Color(0xFFFFD54F), color = Color.Black),
-                                    index,
-                                    (index + mark.text.length).coerceAtMost(cleaned.length)
-                                )
-                            }
-                        }
+                if (twoPages) {
+                    Row(Modifier.fillMaxSize().padding(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        BookPage(first, start + 1, highlights.filter { it.page == start + 1 }, fontSize, lineHeightMultiplier, backgroundMode, zoom, margin / 2f, onTextSelected, Modifier.weight(1f))
+                        if (second.isNotBlank()) BookPage(second, start + 2, highlights.filter { it.page == start + 2 }, fontSize, lineHeightMultiplier, backgroundMode, zoom, margin / 2f, onTextSelected, Modifier.weight(1f))
                     }
+                } else {
+                    BookPage(first, start + 1, highlights.filter { it.page == start + 1 }, fontSize, lineHeightMultiplier, backgroundMode, zoom, margin, onTextSelected, Modifier.fillMaxSize())
                 }
-
-                LaunchedEffect(pageSelection.selectedTexts) {
-                    if (pagerState.settledPage == page) {
-                        val selected = pageSelection.selectedTexts.joinToString("\n") { it.text }.trim()
-                        onTextSelected(selected.take(4000))
-                    }
-                }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 26.dp, vertical = 28.dp)
-                        .widthIn(max = 760.dp),
-                    verticalArrangement = Arrangement.Top
-                ) {
-                    Text(
-                        text = "LEITURA",
-                        color = secondary,
-                        style = TextStyle(fontSize = 11.sp, letterSpacing = 1.8.sp)
-                    )
-
-                    SelectionContainer(state = pageSelection) {
-                        Text(
-                            text = annotated,
-                            color = foreground,
-                            fontFamily = FontFamily.Serif,
-                            fontSize = fontSize.sp,
-                            lineHeight = (fontSize * lineHeightMultiplier).sp,
-                            textAlign = TextAlign.Justify,
-                            modifier = Modifier.padding(top = 18.dp)
-                        )
-                    }
-                }
-
-                Text(
-                    text = (page + 1).toString(),
-                    color = secondary,
-                    style = TextStyle(fontSize = 11.sp),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
-                )
             }
         }
-
         LinearProgressIndicator(
-            progress = {
-                if (pageTexts.isEmpty()) 0f else (pagerState.currentPage + 1f) / pageTexts.size
-            },
+            progress = { if (pageCount <= 0) 0f else (pagerState.currentPage + 1f) / pageCount },
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
-            color = foreground
         )
+    }
+}
+
+private fun BookPage(
+    raw: String, pageNumber: Int, highlights: List<ReadingHighlight>, fontSize: Float,
+    lineHeightMultiplier: Float, backgroundMode: Int, zoom: Float, margin: Float,
+    onTextSelected: (String) -> Unit, modifier: Modifier
+) {
+    androidx.compose.runtime.key(pageNumber) {
+        Box(modifier) {
+            BookPage(raw, pageNumber, highlights, fontSize, lineHeightMultiplier, backgroundMode, zoom, margin, onTextSelected)
+        }
     }
 }
