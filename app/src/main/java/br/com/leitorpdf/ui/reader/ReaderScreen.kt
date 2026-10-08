@@ -417,7 +417,7 @@ fun ReaderScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Marcações e favoritos") },
-                                    leadingIcon = { Icon(Icons.Default.FormatColorHighlight, null) },
+                                    leadingIcon = { Icon(Icons.Default.Highlight, null) },
                                     onClick = { showMarksDialog = true; menuExpanded = false }
                                 )
                                 DropdownMenuItem(
@@ -485,7 +485,7 @@ fun ReaderScreen(
                                 viewModel.addHighlight(selectedText)
                                 selectedText = ""
                             }) {
-                                Icon(Icons.Default.FormatColorHighlight, null)
+                                Icon(Icons.Default.Highlight, null)
                                 Text("Marcar")
                             }
                             TextButton(onClick = { copyText(selectedText) }) {
