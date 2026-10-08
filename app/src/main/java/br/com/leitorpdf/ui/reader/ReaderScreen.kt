@@ -71,6 +71,9 @@ fun ReaderScreen(
     var twoPages by remember { mutableStateOf(false) }
     var zoom by remember { mutableStateOf(1f) }
     var margin by remember { mutableStateOf(26f) }
+    val ai = remember { ReaderAiClient(context) }
+    var aiEndpoint by remember { mutableStateOf(ai.endpoint()) }
+    var aiToken by remember { mutableStateOf(ai.token()) }
     var showAiActions by remember { mutableStateOf(false) }
     var aiAction by remember { mutableStateOf("explicar") }
     var aiResult by remember { mutableStateOf("") }
