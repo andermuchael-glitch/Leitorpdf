@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Intent
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -25,6 +27,7 @@ class ReadingRecorderService : Service() {
         const val EXTRA_START_PAGE = "start_page"
         const val EXTRA_MUSIC = "music_uri"
         const val EXTRA_MUSIC_VOLUME = "music_volume"
+        const val EXTRA_END_PAGE = "end_page"
         const val NOTIFICATION_ID = 3651
         const val CHANNEL_ID = "reading_recording"
     }
@@ -40,11 +43,15 @@ class ReadingRecorderService : Service() {
     private var startPage = 1
     private var musicUri: String? = null
     private var musicVolume = .12f
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var gainControl: AutomaticGainControl? = null
+    private var endPage = 1
     private val store by lazy { ReadingRecorderStore(applicationContext) }
 
     override fun onCreate() { super.onCreate(); createChannel() }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) endPage = intent.getIntExtra(EXTRA_END_PAGE, endPage)
         when (intent?.action) {
             ACTION_START -> startRecording(intent)
             ACTION_PAUSE -> pauseRecording()
@@ -66,7 +73,7 @@ class ReadingRecorderService : Service() {
         try {
             recorder = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
             recorder?.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setAudioEncodingBitRate(96000)
@@ -76,6 +83,8 @@ class ReadingRecorderService : Service() {
                 prepare()
                 start()
             }
+            runCatching { noiseSuppressor = NoiseSuppressor.create(recorder?.audioSessionId ?: 0)?.apply { enabled = true } }
+            runCatching { gainControl = AutomaticGainControl.create(recorder?.audioSessionId ?: 0)?.apply { enabled = true } }
             startedAt = System.currentTimeMillis()
             accumulatedMs = 0L
             lastResumeAt = startedAt
@@ -83,6 +92,7 @@ class ReadingRecorderService : Service() {
             currentBook = intent.getStringExtra(EXTRA_BOOK).orEmpty()
             currentUri = intent.getStringExtra(EXTRA_URI).orEmpty()
             startPage = intent.getIntExtra(EXTRA_START_PAGE, 1)
+            endPage = startPage
             musicUri = intent.getStringExtra(EXTRA_MUSIC)
             musicVolume = intent.getFloatExtra(EXTRA_MUSIC_VOLUME, .12f).coerceIn(0f, .4f)
             startMusic()
@@ -130,7 +140,7 @@ class ReadingRecorderService : Service() {
         if (!cancel && file != null && java.io.File(file).exists()) {
             store.add(ReadingRecording(
                 System.currentTimeMillis(), "Minha leitura", currentBook.ifBlank { "Documento" },
-                currentUri, startPage, startPage, elapsed, file, musicUri
+                currentUri, startPage, endPage.coerceAtLeast(startPage), elapsed, file, musicUri
             ))
         } else file?.let { java.io.File(it).delete() }
         store.clearState(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
