@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatSize
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
+import br.com.leitorpdf.reader.ReadingHighlight
 
 private fun reflowPdfText(raw: String): String {
     if (raw.isBlank()) return ""
@@ -56,25 +59,23 @@ private fun reflowPdfText(raw: String): String {
 }
 
 private fun normalizedForHighlight(value: String): String =
-    value.lowercase()
-        .replace(Regex("""\s+"""), " ")
-        .trim()
+    value.lowercase().replace(Regex("""\s+"""), " ").trim()
 
 @Composable
 fun ReflowReader(
     pageText: String,
-    highlightText: String,
+    highlights: List<ReadingHighlight>,
     fontSize: Float,
     lineHeightMultiplier: Float,
     backgroundMode: Int,
     modifier: Modifier = Modifier,
     onIncreaseFont: () -> Unit,
-    onDecreaseFont: () -> Unit
+    onDecreaseFont: () -> Unit,
+    onTextSelected: (String) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    val selectionState = rememberSelectionState()
     val text = remember(pageText) { reflowPdfText(pageText) }
-    val normalizedText = remember(text) { normalizedForHighlight(text) }
-    val normalizedHighlight = remember(highlightText) { normalizedForHighlight(highlightText) }
 
     val (background, foreground, secondary) = when (backgroundMode) {
         1 -> Triple(Color(0xFFF4E8C8), Color(0xFF3F3525), Color(0xFF6F624D))
@@ -83,39 +84,42 @@ fun ReflowReader(
         else -> Triple(Color(0xFFFDFCF8), Color(0xFF202124), Color(0xFF5F6368))
     }
 
-    val highlightStart = remember(normalizedText, normalizedHighlight) {
-        if (normalizedHighlight.length < 3) -1
-        else normalizedText.indexOf(normalizedHighlight)
-    }
-
-    val annotated = remember(text, highlightStart, normalizedHighlight, foreground) {
-        if (highlightStart < 0) {
-            buildAnnotatedString { append(text) }
-        } else {
-            val end = (highlightStart + normalizedHighlight.length).coerceAtMost(text.length)
-            buildAnnotatedString {
-                append(text.substring(0, highlightStart))
-                withStyle(
-                    SpanStyle(
-                        background = Color(0xFFFFD54F),
-                        color = Color.Black
-                    )
-                ) {
-                    append(text.substring(highlightStart, end))
+    val annotated = remember(text, highlights, foreground) {
+        buildAnnotatedString {
+            append(text)
+            highlights.forEach { mark ->
+                val needle = normalizedForHighlight(mark.text)
+                if (needle.length >= 3) {
+                    var from = 0
+                    while (from < text.length) {
+                        val index = normalizedForHighlight(text.substring(from)).indexOf(needle)
+                        if (index < 0) break
+                        val start = from + index
+                        val end = (start + mark.text.length).coerceAtMost(text.length)
+                        addStyle(
+                            SpanStyle(background = Color(0xFFFFD54F), color = Color.Black),
+                            start,
+                            end
+                        )
+                        from = end
+                    }
                 }
-                append(text.substring(end))
             }
         }
     }
 
     LaunchedEffect(pageText) {
         scrollState.scrollTo(0)
+        selectionState.clear()
+    }
+
+    LaunchedEffect(selectionState.selectedTexts) {
+        val selected = selectionState.selectedTexts.joinToString("\n") { it.text }.trim()
+        onTextSelected(selected.take(4000))
     }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(background)
+        modifier = modifier.fillMaxSize().background(background)
     ) {
         Column(
             modifier = Modifier
@@ -151,32 +155,30 @@ fun ReflowReader(
                     style = MaterialTheme.typography.bodyLarge
                 )
             } else {
-                Text(
-                    text = annotated,
-                    color = foreground,
-                    fontSize = fontSize.sp,
-                    lineHeight = (fontSize * lineHeightMultiplier).sp,
-                    textAlign = TextAlign.Start,
-                    style = TextStyle(
-                        letterSpacing = 0.01.sp
+                SelectionContainer(state = selectionState) {
+                    Text(
+                        text = annotated,
+                        color = foreground,
+                        fontSize = fontSize.sp,
+                        lineHeight = (fontSize * lineHeightMultiplier).sp,
+                        textAlign = TextAlign.Start,
+                        style = TextStyle(letterSpacing = 0.01.sp)
                     )
-                )
+                }
             }
 
             Spacer(Modifier.padding(bottom = 90.dp))
         }
 
-        if (highlightStart >= 0) {
+        if (selectionState.selectedTexts.isNotEmpty()) {
             Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 54.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 52.dp),
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xFFFFD54F)
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
-                    "🔊 acompanhando a leitura",
-                    color = Color.Black,
+                    "Texto selecionado • use as ações acima",
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
@@ -185,9 +187,7 @@ fun ReflowReader(
 
         LinearProgressIndicator(
             progress = { scrollState.value.toFloat() / scrollState.maxValue.coerceAtLeast(1) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter),
+            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
             color = MaterialTheme.colorScheme.primary
         )
     }
