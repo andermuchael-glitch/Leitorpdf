@@ -3,4 +3,5 @@
     <cache-path
         name="generated_images"
         path="." />
+    <files-path name="recordings" path="recordings/" />
 </paths>
