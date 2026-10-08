@@ -24,11 +24,13 @@ import androidx.core.content.FileProvider
 import br.com.leitorpdf.reader.ReadingRecorderService
 import br.com.leitorpdf.reader.ReadingRecorderStore
 import br.com.leitorpdf.reader.ReadingRecording
+import br.com.leitorpdf.reader.ReadingAudioMixer
 import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileInputStream
 import java.util.Locale
 
+@OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
     val context = LocalContext.current
@@ -42,6 +44,7 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
     var musicVolume by remember { mutableFloatStateOf(.12f) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingId by remember { mutableStateOf<Long?>(null) }
+    var mixing by remember { mutableStateOf(false) }
     var exportRecording by remember { mutableStateOf<ReadingRecording?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -146,6 +149,25 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
                                 Text(formatMs(recording.durationMs) + " • pág. " + recording.startPage, style = MaterialTheme.typography.bodySmall)
                             }
                             IconButton(onClick = { play(recording) }) { Icon(Icons.Default.PlayArrow, "Ouvir") }
+                            if (recording.musicUri != null) {
+                                IconButton(onClick = {
+                                    if (!mixing) {
+                                        mixing = true
+                                        ReadingAudioMixer.export(context, recording, 0.12f,
+                                            onComplete = { mixed ->
+                                                store.add(recording.copy(id = System.currentTimeMillis(), title = "Minha leitura • música", filePath = mixed.absolutePath))
+                                                recordings = store.recordings()
+                                                mixing = false
+                                                android.widget.Toast.makeText(context, "Versão com música criada.", android.widget.Toast.LENGTH_SHORT).show()
+                                            },
+                                            onError = {
+                                                mixing = false
+                                                android.widget.Toast.makeText(context, "Não foi possível criar a mixagem.", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                        )
+                                    }
+                                }) { Icon(Icons.Default.MusicNote, "Criar versão com música") }
+                            }
                             IconButton(onClick = { exportRecording = recording; exportPicker.launch(recording.bookTitle.take(40) + "_leitura.m4a") }) { Icon(Icons.Default.Download, "Baixar") }
                             IconButton(onClick = { share(recording) }) { Icon(Icons.Default.Share, "Compartilhar") }
                             IconButton(onClick = { File(recording.filePath).delete(); store.remove(recording.id); recordings = store.recordings() }) { Icon(Icons.Default.DeleteOutline, "Excluir") }
@@ -155,6 +177,10 @@ fun ReadingRecorderPanel(uri: Uri, bookTitle: String, page: Int) {
             },
             confirmButton = { TextButton(onClick = { showList = false }) { Text("Fechar") } }
         )
+    }
+
+    if (mixing) {
+        AlertDialog(onDismissRequest = {}, title = { Text("Preparando áudio") }, text = { Text("Combinando voz e trilha em volume baixo para preservar a leitura.") }, confirmButton = {})
     }
 
     if (status.recording) {
