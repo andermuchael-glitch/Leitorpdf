@@ -34,6 +34,7 @@ import androidx.core.content.FileProvider
 import br.com.leitorpdf.data.pdf.PdfPageView
 import br.com.leitorpdf.reader.ReaderViewModel
 import br.com.leitorpdf.reader.ReaderAiClient
+import br.com.leitorpdf.reader.ReadingAppearance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -87,6 +88,28 @@ fun ReaderScreen(
     var noteText by remember { mutableStateOf("") }
     var highlightColor by remember { mutableStateOf("yellow") }
 
+    fun persistAppearance() {
+        viewModel.saveReadingAppearance(
+            ReadingAppearance(
+                fontSize = fontSize,
+                lineHeight = lineHeight,
+                backgroundMode = backgroundMode,
+                filterMode = filterMode,
+                brightness = brightness,
+                readingMode = readingMode
+            )
+        )
+        viewModel.saveReadingOptions(concentration, twoPages, zoom, margin)
+    }
+
+    fun closeSettings() {
+        persistAppearance()
+        showReadingSettings = false
+        showAppearance = false
+        controlsVisible = false
+        menuExpanded = false
+    }
+
     val pdfView = remember { PdfPageView(context) }
 
     LaunchedEffect(uri) {
@@ -96,6 +119,17 @@ fun ReaderScreen(
         zoom = options.second
         margin = options.third
         twoPages = viewModel.twoPageMode()
+        val appearance = viewModel.readingAppearance()
+        fontSize = appearance.fontSize
+        lineHeight = appearance.lineHeight
+        backgroundMode = appearance.backgroundMode
+        filterMode = appearance.filterMode
+        brightness = appearance.brightness
+        readingMode = appearance.readingMode
+        if (readingMode == 0) {
+            pdfView.setFilterMode(filterMode)
+            pdfView.setBrightness(brightness)
+        }
     }
     SideEffect {
         val activity = context as? Activity
@@ -214,14 +248,14 @@ fun ReaderScreen(
 
     if (showReadingSettings) {
         AlertDialog(
-            onDismissRequest = { showReadingSettings = false },
+            onDismissRequest = { closeSettings() },
             title = { Text("Experiência de leitura") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Tamanho: " + fontSize.toInt() + " sp")
                     Slider(fontSize, { fontSize = it }, valueRange = 16f..34f)
                     Text("Espaçamento")
-                    Slider(lineHeight, { lineHeight = it }, valueRange = 1.25f..1.9f)
+                    Slider(lineHeight, { lineHeight = it; persistAppearance() }, valueRange = 1.25f..1.9f)
                     Text("Zoom: " + (zoom * 100).toInt() + "%")
                     Slider(zoom, { zoom = it; viewModel.saveReadingOptions(concentration, twoPages, zoom, margin) }, valueRange = 0.85f..1.35f)
                     Text("Margens: " + margin.toInt() + " dp")
@@ -234,20 +268,20 @@ fun ReaderScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         listOf("Claro", "Sépia", "Escuro", "Preto", "Azul", "Verde", "Rosa").forEachIndexed { i, label ->
                             OutlinedButton(
-                                onClick = { backgroundMode = i },
+                                onClick = { backgroundMode = i; persistAppearance() },
                                 Modifier.weight(1f)
                             ) { Text(label, fontSize = 9.sp) }
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showReadingSettings = false }) { Text("Concluir") } }
+            confirmButton = { TextButton(onClick = { closeSettings() }) { Text("Concluir") } }
         )
     }
 
     if (showAppearance) {
         AlertDialog(
-            onDismissRequest = { showAppearance = false },
+            onDismissRequest = { closeSettings() },
             title = { Text("Aparência do PDF") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -255,7 +289,7 @@ fun ReaderScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         listOf("Normal", "Sépia", "Cinza", "Invertido").forEachIndexed { i, label ->
                             OutlinedButton(
-                                onClick = { filterMode = i; pdfView.setFilterMode(i) },
+                                onClick = { filterMode = i; pdfView.setFilterMode(i); persistAppearance() },
                                 Modifier.weight(1f)
                             ) { Text(label, fontSize = 10.sp) }
                         }
@@ -271,7 +305,7 @@ fun ReaderScreen(
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = { showAppearance = false }) { Text("Concluir") } }
+            confirmButton = { TextButton(onClick = { closeSettings() }) { Text("Concluir") } }
         )
     }
 
@@ -368,8 +402,12 @@ fun ReaderScreen(
         Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
             detectTapGestures(
                 onLongPress = {
-                    controlsVisible = true
-                    showReadingSettings = true
+                    if (controlsVisible) {
+                        closeSettings()
+                    } else {
+                        controlsVisible = true
+                        showReadingSettings = true
+                    }
                 }
             )
         }) {
@@ -487,17 +525,17 @@ fun ReaderScreen(
                                 DropdownMenuItem(
                                     text = { Text("Modo Reflow") },
                                     leadingIcon = { Icon(Icons.Default.FormatSize, null) },
-                                    onClick = { readingMode = 1; menuExpanded = false }
+                                    onClick = { readingMode = 1; persistAppearance(); menuExpanded = false }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Modo Livro 3D") },
                                     leadingIcon = { Icon(Icons.Default.AutoStories, null) },
-                                    onClick = { readingMode = 2; menuExpanded = false }
+                                    onClick = { readingMode = 2; persistAppearance(); menuExpanded = false }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("PDF original") },
                                     leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
-                                    onClick = { readingMode = 0; menuExpanded = false }
+                                    onClick = { readingMode = 0; persistAppearance(); menuExpanded = false }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Ajustes da leitura") },
