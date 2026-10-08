@@ -5,6 +5,8 @@
 
     <application
         android:allowBackup="true"
+        android:icon="@drawable/ic_leitorpdf"
+        android:roundIcon="@drawable/ic_leitorpdf"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Leitorpdf">
