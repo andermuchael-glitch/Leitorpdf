@@ -56,7 +56,7 @@ fun ReaderScreen(
     val scope = rememberCoroutineScope()
     val readerAi = remember { ReaderAiClient(context) }
 
-    var controlsVisible by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var readingMode by remember { mutableIntStateOf(2) } // 0 PDF, 1 Reflow, 2 Livro 3D
     var selectedText by remember { mutableStateOf("") }
@@ -112,7 +112,7 @@ fun ReaderScreen(
         persistAppearance()
         showReadingSettings = false
         showAppearance = false
-        controlsVisible = false
+        controlsVisible = true
         menuExpanded = false
     }
 
@@ -420,18 +420,7 @@ fun ReaderScreen(
     }
 
     Scaffold(containerColor = Color.Black) {
-        Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
-            detectTapGestures(
-                onLongPress = {
-                    if (controlsVisible) {
-                        closeSettings()
-                    } else {
-                        controlsVisible = true
-                        showReadingSettings = true
-                    }
-                }
-            )
-        }) {
+        Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { detectTapGestures(onLongPress = { showReadingSettings = true }) }) {
             when (readingMode) {
                 1 -> ReflowReader(
                     pageText = state.pageTexts.getOrNull(state.selectedPage - 1).orEmpty(),
@@ -519,6 +508,8 @@ fun ReaderScreen(
                                 tint = if (state.bookmarks.contains(state.selectedPage)) Color(0xFFFFD54F) else Color.White
                             )
                         }
+                        IconButton(onClick = { showReadingSettings = true }) { Icon(Icons.Default.Tune, "Configurações de leitura", tint = Color.White) }
+                        IconButton(onClick = { showRecorder = true }) { Icon(Icons.Default.Mic, "Gravar leitura", tint = Color(0xFFFF8A65)) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
                                 Icon(Icons.Default.MoreVert, "Opções", tint = Color.White)
@@ -558,6 +549,7 @@ fun ReaderScreen(
                                     leadingIcon = { Icon(Icons.Default.PictureAsPdf, null) },
                                     onClick = { readingMode = 0; persistAppearance(); menuExpanded = false }
                                 )
+                                DropdownMenuItem(text = { Text("Estúdio de leitura / gravador") }, leadingIcon = { Icon(Icons.Default.Mic, null) }, onClick = { showRecorder = true; menuExpanded = false })
                                 DropdownMenuItem(
                                     text = { Text("Ajustes da leitura") },
                                     leadingIcon = { Icon(Icons.Default.Tune, null) },

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -137,6 +138,7 @@ private fun LeitorPdfApp(
     val readerViewModel: ReaderViewModel = viewModel()
     val libraryStore = remember { PdfLibraryStore(activity) }
     var libraryBooks by remember { mutableStateOf(libraryStore.books()) }
+    var bookToDelete by remember { mutableStateOf<LibraryBook?>(null) }
 
     LaunchedEffect(selectedUri) {
         val uri = selectedUri ?: return@LaunchedEffect
@@ -199,6 +201,10 @@ private fun LeitorPdfApp(
         }
     }
 
+    if (bookToDelete != null) {
+        AlertDialog(onDismissRequest = { bookToDelete = null }, title = { Text("Remover PDF da biblioteca?") }, text = { Text("O arquivo original continuará no celular. Apenas o atalho e o progresso deste PDF serão removidos do LeitorPDF.") }, confirmButton = { TextButton(onClick = { val book = bookToDelete; if (book != null) { libraryStore.remove(book.uri); libraryBooks = libraryStore.books(); if (prefs.getString("last_uri", null) == book.uri) prefs.edit().remove("last_uri").remove("last_name").remove("uri").remove("available").remove("page").apply() }; bookToDelete = null }) { Text("Remover") } }, dismissButton = { TextButton(onClick = { bookToDelete = null }) { Text("Cancelar") } })
+    }
+
     if (showTextDialog) {
         TextInputDialog(
             onDismiss = { showTextDialog = false },
@@ -256,7 +262,8 @@ private fun LeitorPdfApp(
             onOpenBook = { book ->
                 selectedUri = Uri.parse(book.uri)
                 selectedName = book.title
-            }
+            },
+            onDeleteBook = { bookToDelete = it }
         )
     }
 }
@@ -275,7 +282,8 @@ private fun HomeScreen(
     onOpenWeb: () -> Unit,
     onScan: () -> Unit,
     onContinue: () -> Unit,
-    onOpenBook: (LibraryBook) -> Unit
+    onOpenBook: (LibraryBook) -> Unit,
+    onDeleteBook: (LibraryBook) -> Unit
 ) {
     var searchMode by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -496,7 +504,8 @@ private fun HomeScreen(
                             title = book.title,
                             subtitle = "Página ${book.page} • PDF",
                             coverPath = book.coverPath,
-                            onClick = { onOpenBook(book) }
+                            onClick = { onOpenBook(book) },
+                            onDelete = { onDeleteBook(book) }
                         )
                     }
                 }
@@ -631,8 +640,10 @@ private fun LibraryItem(
     title: String,
     subtitle: String,
     coverPath: String?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -676,9 +687,7 @@ private fun LibraryItem(
                 tint = ListenOrange
             )
 
-            IconButton(onClick = {}) {
-                Icon(Icons.Default.MoreHoriz, "Mais opções")
-            }
+            Box { IconButton(onClick = { menuExpanded = true }) { Icon(Icons.Default.MoreHoriz, "Mais opções") }; androidx.compose.material3.DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) { androidx.compose.material3.DropdownMenuItem(text = { Text("Abrir PDF") }, onClick = { menuExpanded = false; onClick() }); androidx.compose.material3.DropdownMenuItem(text = { Text("Remover da biblioteca") }, leadingIcon = { Icon(Icons.Default.DeleteOutline, null) }, onClick = { menuExpanded = false; onDelete() }) } }
         }
     }
 }

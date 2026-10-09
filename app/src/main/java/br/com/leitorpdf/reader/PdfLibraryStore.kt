@@ -45,6 +45,8 @@ class PdfLibraryStore(private val context: Context) {
         save(list.sortedByDescending { it.updatedAt }.take(100))
     }
 
+    fun remove(uri: String) { save(books().filterNot { it.uri == uri }) }
+
     fun updatePage(uri: String, page: Int) {
         val current = books().firstOrNull { it.uri == uri } ?: return
         addOrUpdate(current.copy(page = page, updatedAt = System.currentTimeMillis()))
