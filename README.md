@@ -24,12 +24,12 @@ Aplicativo Android nativo para leitura de documentos PDF com análise por IA, an
 - Gravação de áudio de leitura com foreground service
 - Tema claro/escuro persistente
 - Salvamento automático do progresso de leitura
+- **Text-to-Speech** em Português do Brasil com destaque visual da página sendo lida e controle de velocidade
 
 ## Próximas etapas
 
-1. Text-to-Speech em Português do Brasil com destaque visual sincronizado do texto
-2. Controles de velocidade, pausa e reprodução em segundo plano
-3. Suporte a PDFs escaneados via OCR
-4. Pesquisa na biblioteca local
+1. Suporte a PDFs escaneados via OCR
+2. Pesquisa na biblioteca local
+3. Reprodução TTS em segundo plano com controles de mídia
 
 Os documentos permanecem no aparelho. O servidor de IA é completamente opcional; a chave da OpenAI nunca entra no APK.
