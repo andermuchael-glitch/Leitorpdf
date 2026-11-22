@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "br.com.leitorpdf"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.com.leitorpdf"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 5
         versionName = "0.6.0"
         ndk {
@@ -44,7 +44,7 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
