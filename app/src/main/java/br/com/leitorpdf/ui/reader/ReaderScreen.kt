@@ -38,10 +38,20 @@ fun ReaderScreen(uri: Uri, fileName: String, viewModel: ReaderViewModel, onBack:
         onDispose { ttsEngine.release(); pdfView.closeDocument() }
     }
 
-    LaunchedEffect(uri) { viewModel.openPdf(uri, fileName) }
+    LaunchedEffect(uri) {
+        viewModel.openPdf(uri, fileName)
+        pdfView.open(
+            uri = uri,
+            scope = scope,
+            onReady = { /* page count available */ },
+            onError = { /* handled by ViewModel text extraction */ }
+        )
+    }
+
     LaunchedEffect(state.pageTexts) {
         if (state.pageTexts.isNotEmpty()) ttsEngine.setPages(state.pageTexts, state.selectedPage - 1)
     }
+
     LaunchedEffect(state.selectedPage) {
         if (state.pageCount > 0) pdfView.goToPage(state.selectedPage - 1, scope)
     }
