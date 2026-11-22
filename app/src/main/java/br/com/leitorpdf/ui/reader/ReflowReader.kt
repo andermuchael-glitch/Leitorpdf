@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatSize
@@ -77,7 +76,6 @@ fun ReflowReader(
     margin: Float = 22f
 ) {
     val scrollState = rememberScrollState()
-    val selectionState = rememberSelectionState()
     val text = remember(pageText) { reflowPdfText(pageText) }
 
     val (background, foreground, secondary) = when (backgroundMode) {
@@ -116,12 +114,6 @@ fun ReflowReader(
 
     LaunchedEffect(pageText) {
         scrollState.scrollTo(0)
-        selectionState.clear()
-    }
-
-    LaunchedEffect(selectionState.selectedTexts) {
-        val selected = selectionState.selectedTexts.joinToString("\n") { it.text }.trim()
-        onTextSelected(selected.take(4000))
     }
 
     Box(
@@ -161,7 +153,7 @@ fun ReflowReader(
                     style = MaterialTheme.typography.bodyLarge
                 )
             } else {
-                SelectionContainer(state = selectionState) {
+                SelectionContainer {
                     Text(
                         text = annotated,
                         color = foreground,
@@ -174,21 +166,6 @@ fun ReflowReader(
             }
 
             Spacer(Modifier.padding(bottom = 90.dp))
-        }
-
-        if (selectionState.selectedTexts.isNotEmpty()) {
-            Surface(
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 52.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Text(
-                    "Texto selecionado • use as ações acima",
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
         }
 
         LinearProgressIndicator(
