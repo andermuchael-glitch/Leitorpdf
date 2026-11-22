@@ -3,6 +3,7 @@ package br.com.leitorpdf.ui.reader
 import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
@@ -65,7 +66,7 @@ fun ReaderScreen(uri: Uri, fileName: String, viewModel: ReaderViewModel, onBack:
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { pdfView }, modifier = Modifier.fillMaxSize())
 
-        // Overlay for tap zones and swipe
+        // Swipe + tap zones overlay
         Box(
             Modifier
                 .fillMaxSize()
@@ -74,7 +75,7 @@ fun ReaderScreen(uri: Uri, fileName: String, viewModel: ReaderViewModel, onBack:
                         onDragStart = { dragAccum = 0f },
                         onHorizontalDrag = { _, dragAmount -> dragAccum += dragAmount },
                         onDragEnd = {
-                            if (abs(dragAccum) > 80) {
+                            if (abs(dragAccum) > 100) {
                                 if (dragAccum < 0) viewModel.nextPage()
                                 else viewModel.previousPage()
                             }
@@ -83,21 +84,30 @@ fun ReaderScreen(uri: Uri, fileName: String, viewModel: ReaderViewModel, onBack:
                     )
                 }
         ) {
-            // Left tap zone (previous page)
+            // Left third: previous page
             Box(
                 Modifier
                     .fillMaxHeight()
-                    .width(80.dp)
+                    .fillMaxWidth(0.35f)
                     .align(Alignment.CenterStart)
-                    .pointerInput(Unit) {
-                        // handled by parent swipe; leave empty for now
-                    }
+                    .clickable(enabled = state.selectedPage > 1) { viewModel.previousPage() }
+            )
+            // Right third: next page
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.35f)
+                    .align(Alignment.CenterEnd)
+                    .clickable(enabled = state.selectedPage < state.pageCount) { viewModel.nextPage() }
             )
         }
 
         if (state.isLoading) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
-            Text("Preparando PDF…", Modifier.align(Alignment.Center).padding(top = 48.dp), color = Color.White)
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color.White)
+                Spacer(Modifier.height(12.dp))
+                Text("Preparando PDF…", color = Color.White)
+            }
         }
 
         // Top bar
