@@ -101,7 +101,17 @@ private fun LeitorPdfApp(initialUri: Uri?, activity: ComponentActivity, darkThem
 
 @Composable
 private fun HomeScreen(lastName: String?, darkTheme: Boolean, onDarkThemeChange: (Boolean) -> Unit, lastPage: Int, hasLastDocument: Boolean, lastCoverPath: String?, libraryBooks: List<LibraryBook>, onOpenPdf: () -> Unit, onOpenText: () -> Unit, onOpenWeb: () -> Unit, onScan: () -> Unit, onContinue: () -> Unit, onOpenBook: (LibraryBook) -> Unit, onDeleteBook: (LibraryBook) -> Unit) {
-    Scaffold { padding ->
+    Scaffold(
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onOpenPdf,
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Escolher PDF") },
+                containerColor = ListenOrange,
+                contentColor = Color.White
+            )
+        }
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(18.dp).verticalScroll(rememberScrollState())) {
             Text("LeitorPDF", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Leitura inteligente • PDF + IA + TTS", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -121,9 +131,27 @@ private fun HomeScreen(lastName: String?, darkTheme: Boolean, onDarkThemeChange:
             }
             Spacer(Modifier.height(16.dp))
             Text("Minha biblioteca", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            libraryBooks.take(8).forEach { book ->
-                LibraryItem(book.title, "Página ${book.page}", book.coverPath, { onOpenBook(book) }, { onDeleteBook(book) })
+            if (libraryBooks.isEmpty()) {
+                Text(
+                    "Nenhum PDF na biblioteca ainda.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                Button(
+                    onClick = onOpenPdf,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = ListenOrange)
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Escolher PDF")
+                }
+            } else {
+                libraryBooks.take(8).forEach { book ->
+                    LibraryItem(book.title, "Página ${book.page}", book.coverPath, { onOpenBook(book) }, { onDeleteBook(book) })
+                }
             }
+            Spacer(Modifier.height(16.dp))
             ReadingDashboard()
         }
     }
