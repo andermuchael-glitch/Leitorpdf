@@ -1,25 +1,35 @@
 # Leitorpdf
 
-Aplicativo Android nativo para leitura de documentos PDF em áudio.
+Aplicativo Android nativo para leitura de documentos PDF com análise por IA, anotações, gravação de áudio e visualização avançada.
 
-## Stack inicial
+## Stack
 
-- Kotlin
-- Jetpack Compose
+- Kotlin 2.4+
+- Jetpack Compose (BOM 2026.11+)
 - Material 3
 - AndroidX
-- MVVM (estrutura preparada para as próximas etapas)
+- MVVM
+- PDFBox Android (extração de texto)
+- Servidor FastAPI opcional para recursos de IA
+
+## Funcionalidades atuais
+
+- Seleção e abertura de PDF via Storage Access Framework e intent VIEW
+- Extração de texto por página (PDFBox)
+- Biblioteca local com detecção de título e geração de capa
+- Anotações, destaques coloridos e marcadores de página
+- Três modos de leitura: PDF nativo, reflow de texto e visualização 3D de livro
+- Análise de trechos com IA (explicar, resumir, perguntas de estudo, conceitos, etc.)
+- Geração de imagens a partir de trechos selecionados (via servidor)
+- Gravação de áudio de leitura com foreground service
+- Tema claro/escuro persistente
+- Salvamento automático do progresso de leitura
 
 ## Próximas etapas
 
-1. Seleção e abertura de PDF pelo Storage Access Framework.
-2. Extração de texto de PDF.
-3. Text-to-Speech em Português do Brasil.
-4. Controles de reprodução e velocidade.
-5. Reprodução em segundo plano e controles de mídia.
-6. Salvamento do ponto de leitura.
-7. Suporte a PDFs escaneados via OCR.
-8. Biblioteca local de documentos.
-9. Geração de APK/AAB para distribuição.
+1. Text-to-Speech em Português do Brasil com destaque visual sincronizado do texto
+2. Controles de velocidade, pausa e reprodução em segundo plano
+3. Suporte a PDFs escaneados via OCR
+4. Pesquisa na biblioteca local
 
-O projeto começa sem login, nuvem ou servidor: os documentos permanecem no aparelho.
+Os documentos permanecem no aparelho. O servidor de IA é completamente opcional; a chave da OpenAI nunca entra no APK.

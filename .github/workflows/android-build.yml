@@ -20,21 +20,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-37 build-tools;35.0.0 platform-tools'
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-
-      - name: Verify Android environment
-        shell: bash
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          test -d "$ANDROID_HOME/platforms" || { echo "Android SDK não encontrado"; exit 1; }
-          ls -la "$ANDROID_HOME/platforms" | head -30
-          ls -la "$ANDROID_HOME/build-tools" | head -30
-          gradle --version
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug --stacktrace

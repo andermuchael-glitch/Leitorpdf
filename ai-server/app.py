@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 app = FastAPI(title="LeitorPDF AI", version="0.2.0")
 
 MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-6-astra")
-IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
+IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
 API_TOKEN = os.getenv("AI_API_TOKEN", "").strip()
 
 class ImageRequest(BaseModel):
