@@ -13,7 +13,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
@@ -64,7 +63,6 @@ private fun BookPage(
     margin: Float,
     onTextSelected: (String) -> Unit
 ) {
-    val pageSelection = rememberSelectionState()
     val cleaned = remember(raw) { cleanBookText(raw) }
     val annotated = remember(cleaned, highlights) {
         buildAnnotatedString {
@@ -77,9 +75,6 @@ private fun BookPage(
                 )
             }
         }
-    }
-    LaunchedEffect(pageSelection.selectedTexts) {
-        onTextSelected(pageSelection.selectedTexts.joinToString("\n") { it.text }.trim().take(4000))
     }
     val paper = when (backgroundMode) {
         1 -> Color(0xFFF8EBCB)
@@ -110,7 +105,7 @@ private fun BookPage(
                 color = foreground.copy(alpha = .58f),
                 style = TextStyle(fontSize = 10.sp, letterSpacing = 1.6.sp)
             )
-            SelectionContainer(state = pageSelection) {
+            SelectionContainer {
                 Text(
                     annotated,
                     color = foreground,
